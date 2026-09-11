@@ -1,0 +1,491 @@
+[
+  {
+    "id": "prod-001",
+    "storeId": "store-001",
+    "code": "CIM-425",
+    "barcode": "6001010101011",
+    "name": "Cimento Portland 42.5N (Saco 50kg)",
+    "genericName": "Cimento Estrutural 42.5N",
+    "dosage": "50kg",
+    "presentation": "Saco de Papel Kraft Reforçado",
+    "manufacturer": "Cimentos de Moçambique",
+    "category": "Cimentos & Argamassas",
+    "baseUnit": "sc",
+    "minStockBase": 100,
+    "minStockAlert": 100,
+    "currentStockBase": 650,
+    "costPriceBase": 420.0,
+    "salePriceBase": 510.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 150, "ARMAZEM": 500, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Saco 50kg", "multiplier": 1, "salePrice": 510.0, "barcode": "6001010101011" },
+      { "packagingName": "Palete c/ 40 Sacos", "multiplier": 40, "salePrice": 19800.0, "barcode": "6001010101012" }
+    ],
+    "batches": [
+      {
+        "id": "batch-001-a",
+        "storeId": "store-001",
+        "productId": "prod-001",
+        "productName": "Cimento Portland 42.5N (Saco 50kg)",
+        "batchNumber": "LT-CIM-2601",
+        "supplierId": "supp-001",
+        "supplierName": "Cimentos de Moçambique SA",
+        "initialQuantityBase": 700,
+        "currentQuantityBase": 650,
+        "costPerBase": 420.0,
+        "expiryDate": "2026-11-20",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-002",
+    "storeId": "store-001",
+    "code": "ACO-10MM",
+    "barcode": "6002020202022",
+    "name": "Varão de Aço Nervurado 10mm (Barra 12m)",
+    "genericName": "Aço CA-50 / BST500S 10mm",
+    "dosage": "12m / ~7.4kg",
+    "presentation": "Barra Redonda Nervurada",
+    "manufacturer": "Cometal Aços",
+    "category": "Ferro & Aço Estrutural",
+    "baseUnit": "bar",
+    "minStockBase": 80,
+    "minStockAlert": 80,
+    "currentStockBase": 420,
+    "costPriceBase": 480.0,
+    "salePriceBase": 590.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 80, "ARMAZEM": 200, "PATIO": 140 },
+    "conversions": [
+      { "packagingName": "Barra 12 Metros", "multiplier": 1, "salePrice": 590.0, "barcode": "6002020202022" },
+      { "packagingName": "Feixe c/ 50 Barras", "multiplier": 50, "salePrice": 28500.0, "barcode": "6002020202023" }
+    ],
+    "batches": [
+      {
+        "id": "batch-002-a",
+        "storeId": "store-001",
+        "productId": "prod-002",
+        "productName": "Varão de Aço Nervurado 10mm (Barra 12m)",
+        "batchNumber": "LT-ACO-10-88",
+        "supplierId": "supp-002",
+        "supplierName": "Cometal & Laminação",
+        "initialQuantityBase": 500,
+        "currentQuantityBase": 420,
+        "costPerBase": 480.0,
+        "expiryDate": "2028-09-10",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-003",
+    "storeId": "store-001",
+    "code": "ACO-12MM",
+    "barcode": "6003030303033",
+    "name": "Varão de Aço Nervurado 12mm (Barra 12m)",
+    "genericName": "Aço CA-50 / BST500S 12mm",
+    "dosage": "12m / ~10.6kg",
+    "presentation": "Barra Redonda Nervurada",
+    "manufacturer": "Cometal Aços",
+    "category": "Ferro & Aço Estrutural",
+    "baseUnit": "bar",
+    "minStockBase": 60,
+    "minStockAlert": 60,
+    "currentStockBase": 310,
+    "costPriceBase": 690.0,
+    "salePriceBase": 840.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 60, "ARMAZEM": 150, "PATIO": 100 },
+    "conversions": [
+      { "packagingName": "Barra 12 Metros", "multiplier": 1, "salePrice": 840.0, "barcode": "6003030303033" }
+    ],
+    "batches": [
+      {
+        "id": "batch-003-a",
+        "storeId": "store-001",
+        "productId": "prod-003",
+        "productName": "Varão de Aço Nervurado 12mm (Barra 12m)",
+        "batchNumber": "LT-ACO-12-99",
+        "supplierId": "supp-002",
+        "supplierName": "Cometal & Laminação",
+        "initialQuantityBase": 350,
+        "currentQuantityBase": 310,
+        "costPerBase": 690.0,
+        "expiryDate": "2028-09-10",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-004",
+    "storeId": "store-001",
+    "code": "PVC-050",
+    "barcode": "6004040404044",
+    "name": "Tubo PVC Soldável 50mm Esgoto/Água (Barra 6m)",
+    "genericName": "Tubo PVC Rígido 50mm PN10",
+    "dosage": "6m",
+    "presentation": "Vara com Ponta e Bolsa",
+    "manufacturer": "Tigre Tubos",
+    "category": "Canalização & Hidráulica",
+    "baseUnit": "tb",
+    "minStockBase": 30,
+    "minStockAlert": 30,
+    "currentStockBase": 125,
+    "costPriceBase": 260.0,
+    "salePriceBase": 360.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 25, "ARMAZEM": 100, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Barra 6 Metros", "multiplier": 1, "salePrice": 360.0, "barcode": "6004040404044" }
+    ],
+    "batches": [
+      {
+        "id": "batch-004-a",
+        "storeId": "store-001",
+        "productId": "prod-004",
+        "productName": "Tubo PVC Soldável 50mm (Barra 6m)",
+        "batchNumber": "LT-TIG-50MM",
+        "supplierId": "supp-003",
+        "supplierName": "Tigre Moçambique",
+        "initialQuantityBase": 150,
+        "currentQuantityBase": 125,
+        "costPerBase": 260.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-005",
+    "storeId": "store-001",
+    "code": "CHP-ZINC-3M",
+    "barcode": "6005050505055",
+    "name": "Chapa de Zinco Ondulada 0.25mm (3.00m)",
+    "genericName": "Chapa de Cobertura Galvanizada",
+    "dosage": "3.00m x 0.80m",
+    "presentation": "Chapa Ondulada",
+    "manufacturer": "Metalúrgica Imperial",
+    "category": "Coberturas & Chapas",
+    "baseUnit": "chp",
+    "minStockBase": 50,
+    "minStockAlert": 50,
+    "currentStockBase": 240,
+    "costPriceBase": 440.0,
+    "salePriceBase": 560.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 40, "ARMAZEM": 200, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Chapa 3 Metros", "multiplier": 1, "salePrice": 560.0, "barcode": "6005050505055" },
+      { "packagingName": "Fardo c/ 20 Chapas", "multiplier": 20, "salePrice": 10900.0, "barcode": "6005050505056" }
+    ],
+    "batches": [
+      {
+        "id": "batch-005-a",
+        "storeId": "store-001",
+        "productId": "prod-005",
+        "productName": "Chapa de Zinco Ondulada 0.25mm (3.00m)",
+        "batchNumber": "LT-CHP-3M",
+        "supplierId": "supp-002",
+        "supplierName": "Cometal Aços",
+        "initialQuantityBase": 300,
+        "currentQuantityBase": 240,
+        "costPerBase": 440.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-006",
+    "storeId": "store-001",
+    "code": "AGR-AREIA-GR",
+    "barcode": "6006060606066",
+    "name": "Areia Grossa Lavada Peneirada (m³)",
+    "genericName": "Areia de Rio Lavada para Concreto",
+    "dosage": "1 m³ (~1.4 ton)",
+    "presentation": "A Granel / Carga de Pátio",
+    "manufacturer": "Areias do Incomáti",
+    "category": "Inertes & Agregados",
+    "baseUnit": "m³",
+    "minStockBase": 20,
+    "minStockAlert": 20,
+    "currentStockBase": 85,
+    "costPriceBase": 700.0,
+    "salePriceBase": 950.0,
+    "allowsFractionation": true,
+    "active": true,
+    "stockByLocation": { "LOJA": 0, "ARMAZEM": 0, "PATIO": 85 },
+    "conversions": [
+      { "packagingName": "Metro Cúbico (m³)", "multiplier": 1, "salePrice": 950.0, "barcode": "6006060606066" },
+      { "packagingName": "Carrinha 3.5 Ton (~2.5m³)", "multiplier": 2.5, "salePrice": 2300.0, "barcode": "6006060606067" }
+    ],
+    "batches": [
+      {
+        "id": "batch-006-a",
+        "storeId": "store-001",
+        "productId": "prod-006",
+        "productName": "Areia Grossa Lavada Peneirada (m³)",
+        "batchNumber": "LT-AREIA-2601",
+        "supplierId": "supp-001",
+        "supplierName": "Areias do Incomáti",
+        "initialQuantityBase": 120,
+        "currentQuantityBase": 85,
+        "costPerBase": 700.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-007",
+    "storeId": "store-001",
+    "code": "AGR-BRITA-1",
+    "barcode": "6007070707077",
+    "name": "Brita 1 de Granito Construção (m³)",
+    "genericName": "Pedra Britada Granítica 19mm",
+    "dosage": "1 m³ (~1.5 ton)",
+    "presentation": "A Granel / Pátio de Agregados",
+    "manufacturer": "Pedreira da Moamba",
+    "category": "Inertes & Agregados",
+    "baseUnit": "m³",
+    "minStockBase": 20,
+    "minStockAlert": 20,
+    "currentStockBase": 65,
+    "costPriceBase": 850.0,
+    "salePriceBase": 1150.0,
+    "allowsFractionation": true,
+    "active": true,
+    "stockByLocation": { "LOJA": 0, "ARMAZEM": 0, "PATIO": 65 },
+    "conversions": [
+      { "packagingName": "Metro Cúbico (m³)", "multiplier": 1, "salePrice": 1150.0, "barcode": "6007070707077" },
+      { "packagingName": "Carrinha 3.5 Ton (~2.3m³)", "multiplier": 2.3, "salePrice": 2600.0, "barcode": "6007070707078" }
+    ],
+    "batches": [
+      {
+        "id": "batch-007-a",
+        "storeId": "store-001",
+        "productId": "prod-007",
+        "productName": "Brita 1 de Granito Construção (m³)",
+        "batchNumber": "LT-BRITA-01",
+        "supplierId": "supp-001",
+        "supplierName": "Pedreira da Moamba",
+        "initialQuantityBase": 90,
+        "currentQuantityBase": 65,
+        "costPerBase": 850.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-008",
+    "storeId": "store-001",
+    "code": "ALV-TIJ-MAC",
+    "barcode": "6008080808088",
+    "name": "Tijolo Maciço Cerâmico Queimado (Milheiro)",
+    "genericName": "Tijolo Estrutural de Barro Vermelho",
+    "dosage": "1000 unidades",
+    "presentation": "Empilhado / Carga Caminhão",
+    "manufacturer": "Cerâmica de Marracuene",
+    "category": "Alvenaria & Blocos",
+    "baseUnit": "milh",
+    "minStockBase": 5,
+    "minStockAlert": 5,
+    "currentStockBase": 22,
+    "costPriceBase": 4200.0,
+    "salePriceBase": 5600.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 2, "ARMAZEM": 0, "PATIO": 20 },
+    "conversions": [
+      { "packagingName": "Milheiro (1000 tijolos)", "multiplier": 1, "salePrice": 5600.0, "barcode": "6008080808088" }
+    ],
+    "batches": [
+      {
+        "id": "batch-008-a",
+        "storeId": "store-001",
+        "productId": "prod-008",
+        "productName": "Tijolo Maciço Cerâmico (Milheiro)",
+        "batchNumber": "LT-TIJ-2601",
+        "supplierId": "supp-001",
+        "supplierName": "Cerâmica de Marracuene",
+        "initialQuantityBase": 30,
+        "currentQuantityBase": 22,
+        "costPerBase": 4200.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-009",
+    "storeId": "store-001",
+    "code": "TNT-BR-20L",
+    "barcode": "6009090909099",
+    "name": "Tinta Acrílica Fosca Branco Neve (Balde 20L)",
+    "genericName": "Tinta Acrílica Standard Lavável",
+    "dosage": "Balde 20L",
+    "presentation": "Balde Plástico com Tampa Hermética",
+    "manufacturer": "Robbialac Moçambique",
+    "category": "Tintas & Acabamentos",
+    "baseUnit": "lata",
+    "minStockBase": 15,
+    "minStockAlert": 15,
+    "currentStockBase": 48,
+    "costPriceBase": 1850.0,
+    "salePriceBase": 2450.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 12, "ARMAZEM": 36, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Balde 20 Litros", "multiplier": 1, "salePrice": 2450.0, "barcode": "6009090909099" }
+    ],
+    "batches": [
+      {
+        "id": "batch-009-a",
+        "storeId": "store-001",
+        "productId": "prod-009",
+        "productName": "Tinta Acrílica Fosca Branco Neve (Balde 20L)",
+        "batchNumber": "LT-ROB-BR20",
+        "supplierId": "supp-003",
+        "supplierName": "Robbialac Moçambique",
+        "initialQuantityBase": 60,
+        "currentQuantityBase": 48,
+        "costPerBase": 1850.0,
+        "expiryDate": "2027-04-15",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-010",
+    "storeId": "store-001",
+    "code": "FIX-PRG-3POL",
+    "barcode": "6010101010100",
+    "name": "Prego com Cabeça Galvanizado 3\" Polegadas (kg)",
+    "genericName": "Prego de Aço para Madeira 18x30 (3\")",
+    "dosage": "1 kg",
+    "presentation": "A Granel / Pacote 1kg",
+    "manufacturer": "Metalúrgica Imperial",
+    "category": "Fixação & Pregos",
+    "baseUnit": "kg",
+    "isSoldByWeight": true,
+    "minStockBase": 50,
+    "minStockAlert": 50,
+    "currentStockBase": 180,
+    "costPriceBase": 95.0,
+    "salePriceBase": 140.0,
+    "allowsFractionation": true,
+    "active": true,
+    "stockByLocation": { "LOJA": 40, "ARMAZEM": 140, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Quilograma (kg)", "multiplier": 1, "salePrice": 140.0, "barcode": "6010101010100" },
+      { "packagingName": "Saco c/ 25 kg", "multiplier": 25, "salePrice": 3250.0, "barcode": "6010101010101" }
+    ],
+    "batches": [
+      {
+        "id": "batch-010-a",
+        "storeId": "store-001",
+        "productId": "prod-010",
+        "productName": "Prego com Cabeça Galvanizado 3\" (kg)",
+        "batchNumber": "LT-PRG-3P",
+        "supplierId": "supp-002",
+        "supplierName": "Cometal Aços",
+        "initialQuantityBase": 250,
+        "currentQuantityBase": 180,
+        "costPerBase": 95.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-011",
+    "storeId": "store-001",
+    "code": "FIX-ARAME-REC",
+    "barcode": "6011111111111",
+    "name": "Fio de Bobinagem / Arame Queimado Recozido 1.5mm (kg)",
+    "genericName": "Arame Recozido Bitola BWG 16 (1.65mm)",
+    "dosage": "1 kg",
+    "presentation": "Rolo de Amarração",
+    "manufacturer": "Cometal Aços",
+    "category": "Fixação & Pregos",
+    "baseUnit": "kg",
+    "isSoldByWeight": true,
+    "minStockBase": 30,
+    "minStockAlert": 30,
+    "currentStockBase": 140,
+    "costPriceBase": 85.0,
+    "salePriceBase": 125.0,
+    "allowsFractionation": true,
+    "active": true,
+    "stockByLocation": { "LOJA": 30, "ARMAZEM": 110, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Quilograma (kg)", "multiplier": 1, "salePrice": 125.0, "barcode": "6011111111111" },
+      { "packagingName": "Rolo Fechado 25 kg", "multiplier": 25, "salePrice": 2900.0, "barcode": "6011111111112" }
+    ],
+    "batches": [
+      {
+        "id": "batch-011-a",
+        "storeId": "store-001",
+        "productId": "prod-011",
+        "productName": "Arame Queimado Recozido 1.5mm (kg)",
+        "batchNumber": "LT-ARAM-16",
+        "supplierId": "supp-002",
+        "supplierName": "Cometal Aços",
+        "initialQuantityBase": 200,
+        "currentQuantityBase": 140,
+        "costPerBase": 85.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  {
+    "id": "prod-012",
+    "storeId": "store-001",
+    "code": "HID-TORN-12",
+    "barcode": "6012121212122",
+    "name": "Torneira Esfera Metálica Latão 1/2\" Polegada",
+    "genericName": "Válvula Esfera Jardim/Canteiro 1/2\"",
+    "dosage": "1 unidade",
+    "presentation": "Embalagem Individual",
+    "manufacturer": "Tigre Hidráulica",
+    "category": "Canalização & Hidráulica",
+    "baseUnit": "un",
+    "minStockBase": 20,
+    "minStockAlert": 20,
+    "currentStockBase": 75,
+    "costPriceBase": 140.0,
+    "salePriceBase": 220.0,
+    "allowsFractionation": false,
+    "active": true,
+    "stockByLocation": { "LOJA": 25, "ARMAZEM": 50, "PATIO": 0 },
+    "conversions": [
+      { "packagingName": "Unidade", "multiplier": 1, "salePrice": 220.0, "barcode": "6012121212122" }
+    ],
+    "batches": [
+      {
+        "id": "batch-012-a",
+        "storeId": "store-001",
+        "productId": "prod-012",
+        "productName": "Torneira Esfera Metálica 1/2\"",
+        "batchNumber": "LT-TORN-12",
+        "supplierId": "supp-003",
+        "supplierName": "Tigre Moçambique",
+        "initialQuantityBase": 100,
+        "currentQuantityBase": 75,
+        "costPerBase": 140.0,
+        "expiryDate": "2030-01-01",
+        "status": "ACTIVE"
+      }
+    ]
+  }
+]

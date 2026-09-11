@@ -1,0 +1,44 @@
+[
+  {
+    "id": "cust-101",
+    "storeId": "store-001",
+    "name": "Mestre Bernardo Machava (Empreiteiro Geral)",
+    "taxId": "1100223344",
+    "phone": "+258 84 912 3456",
+    "email": "bernardo.obras@gmail.com",
+    "address": "Bairro Tchumene 2, Q. 14, Matola",
+    "creditLimit": 50000.0,
+    "creditBalance": 12500.0,
+    "currentDebt": 12500.0,
+    "notes": "Pagamentos regulares quinzenais após medições de obra.",
+    "active": true
+  },
+  {
+    "id": "cust-102",
+    "storeId": "store-001",
+    "name": "Eng. Mateus Sitoe (Construções Zimpeto Lda)",
+    "taxId": "400876543",
+    "phone": "+258 82 444 8899",
+    "email": "compras@zimpetoconstrucoes.co.mz",
+    "address": "Av. de Moçambique, Km 9, Zimpeto",
+    "creditLimit": 120000.0,
+    "creditBalance": 38400.0,
+    "currentDebt": 38400.0,
+    "notes": "Cliente corporativo com entregas diretas em canteiro de obras.",
+    "active": true
+  },
+  {
+    "id": "cust-103",
+    "storeId": "store-001",
+    "name": "Dona Albertina Cossa (Residencial Marracuene)",
+    "taxId": "1109988771",
+    "phone": "+258 87 321 6540",
+    "email": "albertina.cossa@yahoo.com",
+    "address": "Estrada Circular Km 22, Marracuene",
+    "creditLimit": 25000.0,
+    "creditBalance": 0.0,
+    "currentDebt": 0.0,
+    "notes": "Cliente em dia, compras a pronto pagamento.",
+    "active": true
+  }
+]

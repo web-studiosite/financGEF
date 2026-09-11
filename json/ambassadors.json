@@ -1,0 +1,38 @@
+[
+  {
+    "id": "EMB-842",
+    "name": "Mateus Chissano (Embaixador Maputo)",
+    "phone": "+258 84 333 1122",
+    "email": "mateus.chissano@gefparceiros.co.mz",
+    "code": "EMB-842",
+    "commissionPercent": 15,
+    "totalStores": 4,
+    "activeStores": 3,
+    "active": true,
+    "createdAt": "2026-01-10T10:00:00Z"
+  },
+  {
+    "id": "EMB-310",
+    "name": "Joana Cossa (Embaixadora Beira)",
+    "phone": "+258 84 555 9988",
+    "email": "joana.cossa@gefparceiros.co.mz",
+    "code": "EMB-310",
+    "commissionPercent": 15,
+    "totalStores": 2,
+    "activeStores": 1,
+    "active": true,
+    "createdAt": "2026-02-01T09:00:00Z"
+  },
+  {
+    "id": "EMB-501",
+    "name": "Abdul Cadre (Embaixador Nampula)",
+    "phone": "+258 86 222 4433",
+    "email": "abdul.cadre@gefparceiros.co.mz",
+    "code": "EMB-501",
+    "commissionPercent": 15,
+    "totalStores": 3,
+    "activeStores": 2,
+    "active": true,
+    "createdAt": "2026-03-01T08:30:00Z"
+  }
+]

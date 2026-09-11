@@ -1,0 +1,41 @@
+[
+  {
+    "id": "supp-001",
+    "storeId": "store-001",
+    "name": "Cimentos de Moçambique SA (CimentNac)",
+    "tradeName": "CimentNac Matola",
+    "taxId": "400018291",
+    "phone": "+258 21 400 100",
+    "email": "vendas@cimentnac.co.mz",
+    "contactPerson": "Eng. Luísa Cossa",
+    "address": "Zona Industrial da Matola, Estrada Velha",
+    "notes": "Fornecedor principal de Cimento CP IV-32.5 e CP II-42.5N",
+    "active": true
+  },
+  {
+    "id": "supp-002",
+    "storeId": "store-001",
+    "name": "Cometal & Laminação Sul África Lda",
+    "tradeName": "Cometal Aços",
+    "taxId": "400099182",
+    "phone": "+258 21 320 400",
+    "email": "pedidos@cometal.co.mz",
+    "contactPerson": "Eng. Manuel Ribeiro",
+    "address": "Av. das Indústrias nº 450, Machava",
+    "notes": "Fornecedor direto de varões nervurados 8mm, 10mm, 12mm e arame recozido",
+    "active": true
+  },
+  {
+    "id": "supp-003",
+    "storeId": "store-001",
+    "name": "Tigre Moçambique Tubos & Conexões",
+    "tradeName": "Tigre Tubos",
+    "taxId": "400234561",
+    "phone": "+258 21 750 900",
+    "email": "contato@tigre.co.mz",
+    "contactPerson": "Sr. Paulo Manhica",
+    "address": "Bairro da Manga, Beira",
+    "notes": "Tubagens PVC água fria, esgoto e acessórios de canalização",
+    "active": true
+  }
+]

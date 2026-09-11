@@ -1,0 +1,14 @@
+[
+  { "id": "unit-sc", "name": "Saco (50kg)", "symbol": "sc", "isBase": true, "isSystem": true },
+  { "id": "unit-bar", "name": "Barra (12m)", "symbol": "bar", "isBase": true, "isSystem": true },
+  { "id": "unit-tb", "name": "Tubo (6m)", "symbol": "tb", "isBase": true, "isSystem": true },
+  { "id": "unit-chp", "name": "Chapa", "symbol": "chp", "isBase": true, "isSystem": true },
+  { "id": "unit-m3", "name": "Metro Cúbico", "symbol": "m³", "isBase": true, "isSystem": true },
+  { "id": "unit-m", "name": "Metro Linear", "symbol": "m", "isBase": true, "isSystem": true },
+  { "id": "unit-kg", "name": "Quilograma", "symbol": "kg", "isBase": true, "isSystem": true },
+  { "id": "unit-un", "name": "Unidade / Peça", "symbol": "un", "isBase": true, "isSystem": true },
+  { "id": "unit-milh", "name": "Milheiro (1000 un)", "symbol": "milh", "isBase": false, "isSystem": true },
+  { "id": "unit-lata", "name": "Balde / Lata (20L)", "symbol": "lata", "isBase": false, "isSystem": true },
+  { "id": "unit-cx", "name": "Caixa", "symbol": "cx", "isBase": false, "isSystem": true },
+  { "id": "unit-rolo", "name": "Rolo", "symbol": "rolo", "isBase": false, "isSystem": true }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "id": "aef2d4c5-b8dd-4d8a-8bff-7816ee687b53",
+    "email": "superadmin@gef.co.mz",
+    "fullName": "Administrador SaaS Global (Superadmin)",
+    "role": "SUPERADMIN",
+    "storeId": "ALL",
+    "storeName": "Plataforma Global (Monitor & SaaS)",
+    "active": true
+  },
+  {
+    "id": "user-admin-01",
+    "email": "admin.loja@gef.co.mz",
+    "fullName": "Eng. Carlos Sitoe (Administrador da Loja)",
+    "role": "ADMIN",
+    "storeId": "store-001",
+    "storeName": "GEF Ferragens – Loja Matriz Maputo",
+    "active": true
+  },
+  {
+    "id": "user-gerente-02",
+    "email": "marta.gerente@gef.co.mz",
+    "fullName": "Dra. Marta Machava (Gerente Filial)",
+    "role": "GERENTE",
+    "storeId": "store-002",
+    "storeName": "GEF Ferragens – Filial Matola Rio",
+    "active": true
+  },
+  {
+    "id": "user-caixa-03",
+    "email": "caixa.maputo@gef.co.mz",
+    "fullName": "Felisberto Macamo (Operador de Caixa)",
+    "role": "CASHIER",
+    "storeId": "store-001",
+    "storeName": "GEF Ferragens – Loja Matriz Maputo",
+    "active": true
+  },
+  {
+    "id": "user-estoque-04",
+    "email": "estoquista@gef.co.mz",
+    "fullName": "João Mondlane (Encarregado de Estoque & Pátio)",
+    "role": "ESTOQUISTA",
+    "storeId": "store-001",
+    "storeName": "GEF Ferragens – Loja Matriz Maputo",
+    "active": true
+  },
+  {
+    "id": "user-embaixador-05",
+    "email": "paulo.embaixador@gef.co.mz",
+    "fullName": "Paulo Cossa (Embaixador Parceiro)",
+    "role": "EMBAIXADOR",
+    "storeId": "store-001",
+    "storeName": "Programa de Embaixadores GEF",
+    "active": true
+  }
+]
