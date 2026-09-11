@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-MZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEF Gestão Financeira ERP</title>
+  <meta name="description" content="Sistema ERP Comercial para Lojas de Materiais de Construção e Ferragens com Frente de Caixa PDV, Fechamento Cego, Matriz FEFO e Multi-lojas.">
+  <meta property="og:title" content="GEF Gestão Financeira ERP">
+  <meta property="og:description" content="Sistema ERP Comercial para Lojas de Materiais de Construção e Ferragens com Frente de Caixa PDV, Fechamento Cego, Matriz FEFO e Multi-lojas.">
+  <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg">
+  
+  <!-- Estilos Puros (CSS) -->
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <!-- Cabeçalho / Navbar Global -->
+  <div id="navbar-root"></div>
+
+  <!-- Layout Principal com Sidebar e Conteúdo -->
+  <div class="app-layout">
+    <div id="sidebar-root"></div>
+
+    <main class="main-content" id="main-content-root">
+      <!-- Banner de Alerta / Trava SaaS (se vencido) -->
+      <div id="lock-banner-root"></div>
+
+      <!-- Container Dinâmico do Módulo Ativo -->
+      <div id="module-container"></div>
+    </main>
+  </div>
+
+  <!-- Script Principal Vanilla JavaScript (ES Module) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
