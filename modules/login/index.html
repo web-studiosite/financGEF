@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-MZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - GEF Gestão Financeira ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../../assets/icons/icon.svg">
+  <link rel="stylesheet" href="../../css/global.css">
+  <link rel="stylesheet" href="../../css/layout.css">
+  <link rel="stylesheet" href="../../css/components.css">
+</head>
+<body style="background: #0b0f19;">
+  <div id="login-app"></div>
+
+  <script type="module">
+    import { db } from '../../js/core/database.js';
+    import { initLoginModule } from './login.js';
+
+    await db.init();
+    const appEl = document.getElementById('login-app');
+    initLoginModule(appEl, () => {
+      window.location.href = '../../index.html';
+    });
+  </script>
+</body>
+</html>
