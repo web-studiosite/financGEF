@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-MZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEF - Embaixadores & Parceiros</title>
+  <link rel="stylesheet" href="../../css/main.css">
+  <link rel="stylesheet" href="../../css/layout.css">
+  <link rel="stylesheet" href="../../css/components.css">
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <div id="navbar-root"></div>
+  <div class="app-layout">
+    <div id="sidebar-root"></div>
+    <main class="main-content" id="main-content-root">
+      <div id="module-container"></div>
+    </main>
+  </div>
+  <script type="module">
+    import { initEmbaixadoresModule } from './embaixadores.js';
+    import { renderNavbar } from '../../js/components/navbar.js';
+    import { renderSidebar } from '../../js/components/sidebar.js';
+    
+    renderNavbar(document.getElementById('navbar-root'));
+    renderSidebar(document.getElementById('sidebar-root'), { activeTab: 'EMBAIXADORES' });
+    initEmbaixadoresModule(document.getElementById('module-container'));
+  </script>
+</body>
+</html>
