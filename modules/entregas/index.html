@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-MZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entregas & Logística - GEF Gestão Financeira ERP</title>
+  <link rel="icon" type="image/svg+xml" href="../../assets/icons/icon.svg">
+  <link rel="stylesheet" href="../../css/global.css">
+  <link rel="stylesheet" href="../../css/layout.css">
+  <link rel="stylesheet" href="../../css/components.css">
+</head>
+<body>
+  <div id="nav-container"></div>
+  <div class="app-layout">
+    <div id="sidebar-container"></div>
+    <main class="main-content" style="padding: 16px;">
+      <div id="entregas-app"></div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { db } from '../../js/core/database.js';
+    import { auth } from '../../js/core/auth.js';
+    import { renderNavbar } from '../../js/components/navbar.js';
+    import { renderSidebar } from '../../js/components/sidebar.js';
+    import { checkAndRenderLockBanner } from '../../js/components/lock-banner.js';
+    import { initEntregasModule } from './entregas.js';
+
+    await db.init();
+    if (!auth.isAuthenticated()) {
+      window.location.href = '../login/index.html';
+    }
+
+    const navContainer = document.getElementById('nav-container');
+    const sidebarContainer = document.getElementById('sidebar-container');
+    const appEl = document.getElementById('entregas-app');
+
+    const navigate = (tab) => {
+      window.location.href = `../../index.html?tab=${tab}`;
+    };
+
+    renderNavbar(navContainer, {
+      onNavigate: navigate
+    });
+
+    renderSidebar(sidebarContainer, {
+      activeTab: 'ENTREGAS',
+      onSelectTab: navigate
+    });
+
+    checkAndRenderLockBanner(appEl, navigate);
+    initEntregasModule(appEl);
+  </script>
+</body>
+</html>
