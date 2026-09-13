@@ -7,17 +7,36 @@
  * 1. Coloque a URL e a chave PUBLICÁVEL (anon/publishable) abaixo.
  * 2. NUNCA coloque a service_role key neste ficheiro.
  * 3. Mantidos os exports utilizados pelo auth.js.
+ *
+ * Compatível com:
+ * - auth.js
+ * - login real Supabase
+ * - registro real Supabase
+ * - logout real Supabase
+ * - sessão persistente
+ * - modo demo quando Supabase não está configurado
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+
 // ============================================================================
 // CONFIGURAÇÃO DO SUPABASE
 // ============================================================================
+//
+// COLOQUE AQUI OS DADOS REAIS DO SEU PROJETO.
+//
+// IMPORTANTE:
+// Use somente a chave ANON/PUBLICABLE.
+// NUNCA use a service_role key no frontend.
+//
 
-// COLOQUE AQUI OS DADOS REAIS DO SEU PROJETO
-const SUPABASE_URL = 'https://ympvphijbheyzifemoti.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcHZwaGlqYmhleXppZmVtb3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTg2NzIsImV4cCI6MjEwNDg5NDY3Mn0.h4pho05EF1PEj_qi2vLLT655mJs7AUNjubtZOCpgYK0';
+const SUPABASE_URL =
+    'https://ympvphijbheyzifemoti.supabase.co';
+
+const SUPABASE_ANON_KEY =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcHZwaGlqYmhleXppZmVtb3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTg2NzIsImV4cCI6MjEwNDg5NDY3Mn0.h4pho05EF1PEj_qi2vLLT655mJs7AUNjubtZOCpgYK0';
+
 
 // ============================================================================
 // CONFIGURAÇÃO INTERNA
@@ -25,9 +44,19 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const CONFIG_STORAGE_KEY = 'gef_supabase_config_v1';
 
+
+// ============================================================================
+// NORMALIZAR CONFIGURAÇÃO
+// ============================================================================
+
 function normalizeConfig(url, key) {
-    const cleanUrl = String(url || '').trim().replace(/\/+$/, '');
-    const cleanKey = String(key || '').trim();
+
+    const cleanUrl = String(url || '')
+        .trim()
+        .replace(/\/+$/, '');
+
+    const cleanKey = String(key || '')
+        .trim();
 
     return {
         url: cleanUrl,
@@ -35,8 +64,15 @@ function normalizeConfig(url, key) {
     };
 }
 
+
+// ============================================================================
+// VALIDAR URL SUPABASE
+// ============================================================================
+
 function isValidSupabaseUrl(url) {
+
     try {
+
         const parsed = new URL(url);
 
         return (
@@ -45,11 +81,18 @@ function isValidSupabaseUrl(url) {
         );
 
     } catch {
+
         return false;
     }
 }
 
+
+// ============================================================================
+// VALIDAR CHAVE PÚBLICA
+// ============================================================================
+
 function isValidSupabaseKey(key) {
+
     if (!key || key.length < 20) {
         return false;
     }
@@ -60,17 +103,44 @@ function isValidSupabaseKey(key) {
         !lower.includes('sua_chave') &&
         !lower.includes('sua-chave') &&
         !lower.includes('sua chave') &&
+        !lower.includes('sua_chave_publicavel') &&
+        !lower.includes('sua-chave-publicavel') &&
         !lower.includes('aqui') &&
-        !lower.includes('supabase_anon_key')
+        !lower.includes('supabase_anon_key') &&
+        !lower.includes('seu-projeto')
     );
 }
 
+
+// ============================================================================
+// VERIFICAR CONFIGURAÇÃO REAL
+// ============================================================================
+
 function isRealConfig(url, key) {
+
     return (
         isValidSupabaseUrl(url) &&
         isValidSupabaseKey(key)
     );
 }
+
+
+// ============================================================================
+// CONFIGURAÇÃO DIRETA DO FICHEIRO
+// ============================================================================
+//
+// IMPORTANTE:
+// A configuração escrita acima tem PRIORIDADE.
+//
+// Isto evita que uma configuração antiga guardada no navegador
+// substitua as credenciais atuais do projeto.
+//
+
+const DIRECT_CONFIG = normalizeConfig(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+);
+
 
 // ============================================================================
 // CARREGAR CONFIGURAÇÃO
@@ -78,55 +148,24 @@ function isRealConfig(url, key) {
 
 function loadConfig() {
 
-    // 1. Tenta configuração anteriormente salva no navegador
-    try {
-
-        const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
-
-        if (saved) {
-
-            const parsed = JSON.parse(saved);
-
-            const savedConfig = normalizeConfig(
-                parsed?.url,
-                parsed?.anonKey
-            );
-
-            if (
-                isRealConfig(
-                    savedConfig.url,
-                    savedConfig.anonKey
-                )
-            ) {
-                return savedConfig;
-            }
-        }
-
-    } catch (error) {
-
-        console.warn(
-            'GEF: erro ao ler configuração Supabase:',
-            error
-        );
-    }
-
-    // 2. Tenta configuração diretamente neste ficheiro
-
-    const directConfig = normalizeConfig(
-        SUPABASE_URL,
-        SUPABASE_ANON_KEY
-    );
+    // ------------------------------------------------------------------------
+    // 1. PRIMEIRO: credenciais diretamente definidas neste ficheiro
+    // ------------------------------------------------------------------------
 
     if (
         isRealConfig(
-            directConfig.url,
-            directConfig.anonKey
+            DIRECT_CONFIG.url,
+            DIRECT_CONFIG.anonKey
         )
     ) {
-        return directConfig;
+
+        return DIRECT_CONFIG;
     }
 
-    // 3. Tenta configuração fornecida pelo ambiente
+
+    // ------------------------------------------------------------------------
+    // 2. SEGUNDO: configuração de ambiente
+    // ------------------------------------------------------------------------
 
     try {
 
@@ -149,6 +188,7 @@ function loadConfig() {
                 envConfig.anonKey
             )
         ) {
+
             return envConfig;
         }
 
@@ -159,7 +199,51 @@ function loadConfig() {
         );
     }
 
-    // Nenhuma configuração válida
+
+    // ------------------------------------------------------------------------
+    // 3. TERCEIRO: configuração antiga do navegador
+    // ------------------------------------------------------------------------
+    //
+    // Só será usada se NÃO existir configuração direta válida.
+    //
+
+    try {
+
+        const saved =
+            localStorage.getItem(CONFIG_STORAGE_KEY);
+
+        if (saved) {
+
+            const parsed = JSON.parse(saved);
+
+            const savedConfig = normalizeConfig(
+                parsed?.url,
+                parsed?.anonKey
+            );
+
+            if (
+                isRealConfig(
+                    savedConfig.url,
+                    savedConfig.anonKey
+                )
+            ) {
+
+                return savedConfig;
+            }
+        }
+
+    } catch (error) {
+
+        console.warn(
+            'GEF: erro ao ler configuração Supabase:',
+            error
+        );
+    }
+
+
+    // ------------------------------------------------------------------------
+    // 4. Nenhuma configuração válida
+    // ------------------------------------------------------------------------
 
     return {
         url: '',
@@ -167,7 +251,9 @@ function loadConfig() {
     };
 }
 
+
 let currentConfig = loadConfig();
+
 
 // ============================================================================
 // CLIENTE SUPABASE
@@ -175,8 +261,9 @@ let currentConfig = loadConfig();
 
 export let supabase = null;
 
+
 // ============================================================================
-// VERIFICAR CONFIGURAÇÃO
+// VERIFICAR SE O SUPABASE ESTÁ CONFIGURADO
 // ============================================================================
 
 export function isSupabaseConfigured() {
@@ -187,6 +274,7 @@ export function isSupabaseConfigured() {
     );
 }
 
+
 // ============================================================================
 // OBTER CONFIGURAÇÃO
 // ============================================================================
@@ -194,11 +282,17 @@ export function isSupabaseConfigured() {
 export function getSupabaseConfig() {
 
     return {
+
         url: currentConfig.url,
+
         anonKey: currentConfig.anonKey,
-        isConfigured: isSupabaseConfigured()
+
+        isConfigured:
+            isSupabaseConfigured()
+
     };
 }
+
 
 // ============================================================================
 // INICIALIZAR CLIENTE
@@ -206,7 +300,9 @@ export function getSupabaseConfig() {
 
 function initClient() {
 
-    // Não tenta conectar se as credenciais não forem válidas
+    // ------------------------------------------------------------------------
+    // Não inicializar se a configuração não for válida.
+    // ------------------------------------------------------------------------
 
     if (!isSupabaseConfigured()) {
 
@@ -215,26 +311,40 @@ function initClient() {
         return null;
     }
 
+
     try {
 
         supabase = createClient(
+
             currentConfig.url,
+
             currentConfig.anonKey,
+
             {
+
                 auth: {
+
                     persistSession: true,
+
                     autoRefreshToken: true,
+
                     detectSessionInUrl: true,
-                    storageKey: 'gef-supabase-auth'
+
+                    storageKey:
+                        'gef-supabase-auth'
                 },
 
                 global: {
+
                     headers: {
-                        'x-application-name': 'GEF'
+
+                        'x-application-name':
+                            'GEF'
                     }
                 }
             }
         );
+
 
         return supabase;
 
@@ -251,20 +361,33 @@ function initClient() {
     }
 }
 
-// Inicialização única
+
+// ============================================================================
+// INICIALIZAÇÃO
+// ============================================================================
 
 initClient();
+
 
 // ============================================================================
 // SALVAR CONFIGURAÇÃO
 // ============================================================================
+//
+// Mantido para compatibilidade com módulos que eventualmente utilizem
+// configuração dinâmica.
+//
 
-export function saveSupabaseConfig(url, anonKey) {
+export function saveSupabaseConfig(
+    url,
+    anonKey
+) {
 
-    const newConfig = normalizeConfig(
-        url,
-        anonKey
-    );
+    const newConfig =
+        normalizeConfig(
+            url,
+            anonKey
+        );
+
 
     if (
         !isRealConfig(
@@ -274,38 +397,58 @@ export function saveSupabaseConfig(url, anonKey) {
     ) {
 
         return {
+
             success: false,
-            error: 'URL ou chave pública do Supabase inválida.'
+
+            error:
+                'URL ou chave pública do Supabase inválida.'
         };
     }
 
+
     currentConfig = newConfig;
+
 
     try {
 
         localStorage.setItem(
+
             CONFIG_STORAGE_KEY,
-            JSON.stringify(currentConfig)
+
+            JSON.stringify(
+                currentConfig
+            )
         );
 
     } catch (error) {
 
         console.warn(
+
             'GEF: não foi possível guardar a configuração:',
+
             error
         );
     }
 
+
     initClient();
 
+
     return {
-        success: Boolean(supabase),
-        isConfigured: isSupabaseConfigured(),
-        error: supabase
-            ? null
-            : 'Não foi possível inicializar o cliente Supabase.'
+
+        success:
+            Boolean(supabase),
+
+        isConfigured:
+            isSupabaseConfigured(),
+
+        error:
+            supabase
+                ? null
+                : 'Não foi possível inicializar o cliente Supabase.'
     };
 }
+
 
 // ============================================================================
 // LOGIN REAL SUPABASE
@@ -316,22 +459,32 @@ export async function loginWithSupabase(
     password
 ) {
 
+    // ------------------------------------------------------------------------
+    // Verificar configuração
+    // ------------------------------------------------------------------------
+
     if (
         !isSupabaseConfigured() ||
         !supabase
     ) {
 
         return {
+
             success: false,
+
             isConfigError: true,
+
             error:
                 'Supabase ainda não está configurado com uma URL e chave pública válidas.'
         };
     }
 
-    const cleanEmail = String(
-        email || ''
-    ).trim();
+
+    const cleanEmail =
+        String(email || '')
+            .trim()
+            .toLowerCase();
+
 
     if (
         !cleanEmail ||
@@ -339,128 +492,177 @@ export async function loginWithSupabase(
     ) {
 
         return {
+
             success: false,
-            error: 'Informe o e-mail e a senha.'
+
+            error:
+                'Informe o e-mail e a senha.'
         };
     }
 
+
     try {
+
+        // --------------------------------------------------------------------
+        // LOGIN
+        // --------------------------------------------------------------------
 
         const {
             data,
             error
-        } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password: password
-        });
+        } =
+            await supabase.auth.signInWithPassword({
+
+                email:
+                    cleanEmail,
+
+                password:
+                    password
+            });
+
 
         if (error) {
 
             return {
+
                 success: false,
+
                 error:
                     error.message ||
                     'Falha ao autenticar.'
             };
         }
 
+
         if (!data?.user) {
 
             return {
+
                 success: false,
+
                 error:
                     'Usuário não retornado pelo Supabase.'
             };
         }
 
-        // ====================================================================
+
+        // --------------------------------------------------------------------
         // BUSCAR PERFIL
-        // ====================================================================
+        // --------------------------------------------------------------------
 
         let profile = null;
+
 
         try {
 
             const {
+
                 data: profData,
+
                 error: profError
-            } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', data.user.id)
-                .maybeSingle();
+
+            } =
+                await supabase
+
+                    .from('profiles')
+
+                    .select('*')
+
+                    .eq(
+                        'id',
+                        data.user.id
+                    )
+
+                    .maybeSingle();
+
 
             if (
                 !profError &&
                 profData
             ) {
 
-                profile = profData;
+                profile =
+                    profData;
             }
 
         } catch (error) {
 
             console.warn(
+
                 'GEF: não foi possível consultar public.profiles:',
+
                 error
             );
         }
 
-        // ====================================================================
-        // METADATA DO USUÁRIO
-        // ====================================================================
+
+        // --------------------------------------------------------------------
+        // METADATA
+        // --------------------------------------------------------------------
 
         const metadata =
             data.user.user_metadata || {};
+
 
         const role =
             profile?.role ||
             metadata.role ||
             'CASHIER';
 
+
         const storeId =
             profile?.store_id ||
             metadata.store_id ||
             'store-001';
+
 
         const fullName =
             profile?.full_name ||
             metadata.full_name ||
             cleanEmail.split('@')[0];
 
-        // ====================================================================
-        // USUÁRIO DA APLICAÇÃO
-        // ====================================================================
+
+        // --------------------------------------------------------------------
+        // UTILIZADOR DA APLICAÇÃO
+        // --------------------------------------------------------------------
 
         const appUser = {
 
-            id: data.user.id,
+            id:
+                data.user.id,
 
             email:
                 data.user.email ||
                 cleanEmail,
 
-            fullName,
+            fullName:
+                fullName,
 
             role:
                 String(role).toUpperCase(),
 
-            storeId,
+            storeId:
+                storeId,
 
-            supabaseAuth: true,
+            supabaseAuth:
+                true,
 
             active:
                 profile?.active !== false
         };
 
+
         return {
 
             success: true,
 
-            user: appUser,
+            user:
+                appUser,
 
-            session: data.session
+            session:
+                data.session
         };
+
 
     } catch (error) {
 
@@ -475,17 +677,28 @@ export async function loginWithSupabase(
     }
 }
 
+
 // ============================================================================
 // REGISTRO REAL SUPABASE
 // ============================================================================
 
 export async function registerWithSupabase(
+
     email,
+
     password,
+
     fullName,
+
     role = 'CASHIER',
+
     storeId = 'store-001'
+
 ) {
+
+    // ------------------------------------------------------------------------
+    // Verificar configuração
+    // ------------------------------------------------------------------------
 
     if (
         !isSupabaseConfigured() ||
@@ -503,34 +716,44 @@ export async function registerWithSupabase(
         };
     }
 
+
     try {
 
         const {
+
             data,
+
             error
-        } = await supabase.auth.signUp({
 
-            email:
-                String(email || '').trim(),
+        } =
+            await supabase.auth.signUp({
 
-            password,
+                email:
+                    String(
+                        email || ''
+                    ).trim().toLowerCase(),
 
-            options: {
+                password:
+                    password,
 
-                data: {
+                options: {
 
-                    full_name:
-                        String(
-                            fullName || ''
-                        ).trim(),
+                    data: {
 
-                    role,
+                        full_name:
+                            String(
+                                fullName || ''
+                            ).trim(),
 
-                    store_id:
-                        storeId
+                        role:
+                            role,
+
+                        store_id:
+                            storeId
+                    }
                 }
-            }
-        });
+            });
+
 
         if (error) {
 
@@ -543,6 +766,7 @@ export async function registerWithSupabase(
             };
         }
 
+
         return {
 
             success: true,
@@ -553,6 +777,7 @@ export async function registerWithSupabase(
             session:
                 data?.session || null
         };
+
 
     } catch (error) {
 
@@ -567,6 +792,7 @@ export async function registerWithSupabase(
     }
 }
 
+
 // ============================================================================
 // LOGOUT
 // ============================================================================
@@ -579,22 +805,29 @@ export async function logoutWithSupabase() {
     ) {
 
         return {
+
             success: true
         };
     }
+
 
     try {
 
         const {
             error
-        } = await supabase.auth.signOut();
+        } =
+            await supabase.auth.signOut();
+
 
         if (error) {
 
             console.warn(
+
                 'GEF: erro ao fazer logout no Supabase:',
+
                 error
             );
+
 
             return {
 
@@ -605,16 +838,22 @@ export async function logoutWithSupabase() {
             };
         }
 
+
         return {
+
             success: true
         };
+
 
     } catch (error) {
 
         console.warn(
+
             'GEF: erro ao fazer logout:',
+
             error
         );
+
 
         return {
 
@@ -627,12 +866,13 @@ export async function logoutWithSupabase() {
     }
 }
 
+
 // ============================================================================
 // EXPORT DEFAULT
 // ============================================================================
 //
 // Mantido para compatibilidade com módulos antigos.
-//
 // O auth.js atual utiliza os exports nomeados.
+//
 
 export default supabase;
