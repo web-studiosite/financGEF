@@ -1,0 +1,66 @@
+-- ==============================================================================
+-- GEF | CORREÇÃO DE SEGURANÇA DO CADASTRO DE UTILIZADORES
+-- Não confiar em role/store_id enviados pelo frontend
+-- ==============================================================================
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+
+    INSERT INTO public.profiles (
+        id,
+        email,
+        full_name,
+        role,
+        store_id,
+        active
+    )
+    VALUES (
+        NEW.id,
+        NEW.email,
+
+        COALESCE(
+            NULLIF(TRIM(NEW.raw_user_meta_data->>'full_name'), ''),
+            split_part(COALESCE(NEW.email, ''), '@', 1)
+        ),
+
+        -- NUNCA aceitar role enviada pelo cliente
+        'CASHIER',
+
+        -- Mantém o comportamento atual do sistema:
+        -- novos utilizadores começam na loja principal.
+        -- A loja correta pode ser atribuída posteriormente
+        -- por um administrador autorizado.
+        'store-001',
+
+        TRUE
+    )
+
+    ON CONFLICT (id) DO UPDATE
+    SET
+        email = EXCLUDED.email,
+        full_name = EXCLUDED.full_name;
+
+        -- IMPORTANTE:
+        -- role, store_id e active NÃO são alterados pelo trigger
+        -- em caso de conflito.
+
+    RETURN NEW;
+
+END;
+$$;
+
+
+-- Recriar o trigger para garantir que usa a função corrigida
+
+DROP TRIGGER IF EXISTS on_auth_user_created
+ON auth.users;
+
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_new_user();
