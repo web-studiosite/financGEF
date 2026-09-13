@@ -3,10 +3,18 @@
  *
  * Cliente Supabase centralizado.
  *
+ * REGRAS DE AUTENTICAÇÃO:
+ * - Credenciais inválidas = acesso recusado
+ * - Perfil inexistente = acesso recusado
+ * - Erro ao carregar perfil = acesso recusado
+ * - Perfil inativo = acesso recusado
+ * - Role vem EXCLUSIVAMENTE de public.profiles
+ * - Nunca inventar CASHIER
+ * - Nunca usar metadata.role como fallback de segurança
+ *
  * IMPORTANTE:
- * 1. Coloque a URL e a chave PUBLICÁVEL (anon/publishable) abaixo.
+ * 1. Use somente a chave pública ANON/PUBLISHABLE.
  * 2. NUNCA coloque a service_role key neste ficheiro.
- * 3. Mantidos os exports utilizados pelo auth.js.
  *
  * Compatível com:
  * - auth.js
@@ -23,19 +31,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ============================================================================
 // CONFIGURAÇÃO DO SUPABASE
 // ============================================================================
-//
-// COLOQUE AQUI OS DADOS REAIS DO SEU PROJETO.
-//
-// IMPORTANTE:
-// Use somente a chave ANON/PUBLICABLE.
-// NUNCA use a service_role key no frontend.
-//
 
 const SUPABASE_URL =
     'https://ympvphijbheyzifemoti.supabase.co';
 
 const SUPABASE_ANON_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcHZwaGlqYmhleXppZmVtb3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTg2NzIsImV4cCI6MjEwNDg5NDY3Mn0.h4pho05EF1PEj_qi2vLLT655mJs7AUNjubtZOCpgYK0';
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcHZwaGlqYmhleXp'
+    + 'pZmVtb3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzMTg2NzIsImV4cCI6MjEwNDg5NDY3Mn0.'
+    + 'h4pho05EF1PEj_qi2vLLT655mJs7AUNjubtZOCpgYK0';
 
 
 // ============================================================================
@@ -129,11 +132,7 @@ function isRealConfig(url, key) {
 // CONFIGURAÇÃO DIRETA DO FICHEIRO
 // ============================================================================
 //
-// IMPORTANTE:
-// A configuração escrita acima tem PRIORIDADE.
-//
-// Isto evita que uma configuração antiga guardada no navegador
-// substitua as credenciais atuais do projeto.
+// A configuração escrita neste ficheiro tem prioridade.
 //
 
 const DIRECT_CONFIG = normalizeConfig(
@@ -203,9 +202,6 @@ function loadConfig() {
     // ------------------------------------------------------------------------
     // 3. TERCEIRO: configuração antiga do navegador
     // ------------------------------------------------------------------------
-    //
-    // Só será usada se NÃO existir configuração direta válida.
-    //
 
     try {
 
@@ -300,10 +296,6 @@ export function getSupabaseConfig() {
 
 function initClient() {
 
-    // ------------------------------------------------------------------------
-    // Não inicializar se a configuração não for válida.
-    // ------------------------------------------------------------------------
-
     if (!isSupabaseConfigured()) {
 
         supabase = null;
@@ -372,10 +364,6 @@ initClient();
 // ============================================================================
 // SALVAR CONFIGURAÇÃO
 // ============================================================================
-//
-// Mantido para compatibilidade com módulos que eventualmente utilizem
-// configuração dinâmica.
-//
 
 export function saveSupabaseConfig(
     url,
@@ -423,9 +411,7 @@ export function saveSupabaseConfig(
     } catch (error) {
 
         console.warn(
-
             'GEF: não foi possível guardar a configuração:',
-
             error
         );
     }
@@ -460,7 +446,7 @@ export async function loginWithSupabase(
 ) {
 
     // ------------------------------------------------------------------------
-    // Verificar configuração
+    // VERIFICAR CONFIGURAÇÃO
     // ------------------------------------------------------------------------
 
     if (
@@ -504,7 +490,7 @@ export async function loginWithSupabase(
     try {
 
         // --------------------------------------------------------------------
-        // LOGIN
+        // LOGIN REAL
         // --------------------------------------------------------------------
 
         const {
@@ -521,33 +507,57 @@ export async function loginWithSupabase(
             });
 
 
+        // --------------------------------------------------------------------
+        // CREDENCIAIS INVÁLIDAS
+        // --------------------------------------------------------------------
+
         if (error) {
 
-            return {
-
-                success: false,
-
-                error:
-                    error.message ||
-                    'Falha ao autenticar.'
-            };
-        }
-
-
-        if (!data?.user) {
+            // Garantir que nenhuma sessão parcial permaneça.
+            try {
+                await supabase.auth.signOut();
+            } catch (_) {}
 
             return {
 
                 success: false,
 
                 error:
-                    'Usuário não retornado pelo Supabase.'
+                    'E-mail ou senha incorretos.'
             };
         }
 
 
         // --------------------------------------------------------------------
-        // BUSCAR PERFIL
+        // UTILIZADOR NÃO RETORNADO
+        // --------------------------------------------------------------------
+
+        if (!data?.user) {
+
+            try {
+                await supabase.auth.signOut();
+            } catch (_) {}
+
+            return {
+
+                success: false,
+
+                error:
+                    'Não foi possível autenticar o utilizador.'
+            };
+        }
+
+
+        // --------------------------------------------------------------------
+        // BUSCAR PERFIL REAL
+        // --------------------------------------------------------------------
+        //
+        // ATENÇÃO:
+        // O perfil é obrigatório.
+        //
+        // Não existe fallback para CASHIER.
+        // Não existe fallback para metadata.role.
+        //
         // --------------------------------------------------------------------
 
         let profile = null;
@@ -556,9 +566,7 @@ export async function loginWithSupabase(
         try {
 
             const {
-
                 data: profData,
-
                 error: profError
 
             } =
@@ -576,49 +584,158 @@ export async function loginWithSupabase(
                     .maybeSingle();
 
 
-            if (
-                !profError &&
-                profData
-            ) {
+            // ---------------------------------------------------------------
+            // ERRO AO CONSULTAR PERFIL
+            // ---------------------------------------------------------------
 
-                profile =
-                    profData;
+            if (profError) {
+
+                console.error(
+                    'GEF: erro ao consultar public.profiles:',
+                    profError
+                );
+
+                try {
+                    await supabase.auth.signOut();
+                } catch (_) {}
+
+                return {
+
+                    success: false,
+
+                    error:
+                        'Não foi possível verificar o perfil do utilizador. Acesso bloqueado.'
+                };
             }
+
+
+            // ---------------------------------------------------------------
+            // PERFIL NÃO EXISTE
+            // ---------------------------------------------------------------
+
+            if (!profData) {
+
+                try {
+                    await supabase.auth.signOut();
+                } catch (_) {}
+
+                return {
+
+                    success: false,
+
+                    error:
+                        'Perfil do utilizador não encontrado. Acesso bloqueado.'
+                };
+            }
+
+
+            profile = profData;
+
 
         } catch (error) {
 
-            console.warn(
-
-                'GEF: não foi possível consultar public.profiles:',
-
+            console.error(
+                'GEF: erro inesperado ao consultar perfil:',
                 error
             );
+
+            try {
+                await supabase.auth.signOut();
+            } catch (_) {}
+
+            return {
+
+                success: false,
+
+                error:
+                    'Erro ao verificar o perfil do utilizador. Acesso bloqueado.'
+            };
         }
 
 
         // --------------------------------------------------------------------
-        // METADATA
+        // PERFIL INATIVO
         // --------------------------------------------------------------------
 
-        const metadata =
-            data.user.user_metadata || {};
+        if (profile.active !== true) {
 
+            try {
+                await supabase.auth.signOut();
+            } catch (_) {}
+
+            return {
+
+                success: false,
+
+                error:
+                    'Este utilizador está inativo. Acesso bloqueado.'
+            };
+        }
+
+
+        // --------------------------------------------------------------------
+        // ROLE OBRIGATÓRIO
+        // --------------------------------------------------------------------
+
+        if (
+            !profile.role ||
+            typeof profile.role !== 'string' ||
+            !profile.role.trim()
+        ) {
+
+            try {
+                await supabase.auth.signOut();
+            } catch (_) {}
+
+            return {
+
+                success: false,
+
+                error:
+                    'Função do utilizador não definida. Acesso bloqueado.'
+            };
+        }
+
+
+        // --------------------------------------------------------------------
+        // ROLE REAL
+        // --------------------------------------------------------------------
+        //
+        // A função vem EXCLUSIVAMENTE de public.profiles.
+        //
+        // NÃO usar:
+        // metadata.role
+        //
+        // NÃO usar:
+        // 'CASHIER'
+        //
+        // --------------------------------------------------------------------
 
         const role =
-            profile?.role ||
-            metadata.role ||
-            'CASHIER';
+            String(profile.role)
+                .trim()
+                .toUpperCase();
 
+
+        // --------------------------------------------------------------------
+        // STORE REAL
+        // --------------------------------------------------------------------
+        //
+        // Não inventar store-001.
+        //
+        // SUPERADMIN pode ter store_id NULL.
+        // --------------------------------------------------------------------
 
         const storeId =
-            profile?.store_id ||
-            metadata.store_id ||
-            'store-001';
+            profile.store_id || null;
 
+
+        // --------------------------------------------------------------------
+        // NOME REAL DO PERFIL
+        // --------------------------------------------------------------------
 
         const fullName =
-            profile?.full_name ||
-            metadata.full_name ||
+            profile.full_name ||
             cleanEmail.split('@')[0];
 
 
@@ -639,7 +756,7 @@ export async function loginWithSupabase(
                 fullName,
 
             role:
-                String(role).toUpperCase(),
+                role,
 
             storeId:
                 storeId,
@@ -648,9 +765,13 @@ export async function loginWithSupabase(
                 true,
 
             active:
-                profile?.active !== false
+                true
         };
 
+
+        // --------------------------------------------------------------------
+        // LOGIN CONCLUÍDO
+        // --------------------------------------------------------------------
 
         return {
 
@@ -666,13 +787,21 @@ export async function loginWithSupabase(
 
     } catch (error) {
 
+        // --------------------------------------------------------------------
+        // QUALQUER ERRO NÃO PREVISTO = FORA
+        // --------------------------------------------------------------------
+
+        try {
+            await supabase.auth.signOut();
+        } catch (_) {}
+
         return {
 
             success: false,
 
             error:
                 error?.message ||
-                'Falha na conexão com o Supabase.'
+                'Falha na autenticação. Acesso bloqueado.'
         };
     }
 }
@@ -697,7 +826,7 @@ export async function registerWithSupabase(
 ) {
 
     // ------------------------------------------------------------------------
-    // Verificar configuração
+    // VERIFICAR CONFIGURAÇÃO
     // ------------------------------------------------------------------------
 
     if (
@@ -872,7 +1001,6 @@ export async function logoutWithSupabase() {
 // ============================================================================
 //
 // Mantido para compatibilidade com módulos antigos.
-// O auth.js atual utiliza os exports nomeados.
-//
+// ============================================================================
 
 export default supabase;
