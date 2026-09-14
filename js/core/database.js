@@ -1,1610 +1,3351 @@
 /**
- * GEF - GESTÃO FINANCEIRA | CORE DATABASE & BUSINESS ENGINE
- * JavaScript Puro (Vanilla JS)
- * Implementação completa de FEFO, Vendas Atômicas, Multi-Loja, Trava SaaS e Auditoria
+ * GEF - GESTÃO FINANCEIRA
+ * CORE DATABASE & BUSINESS ENGINE
+ *
+ * ARQUITETURA:
+ * - Dados de negócio: Supabase/PostgreSQL
+ * - Autenticação: Supabase Auth
+ * - RLS: responsabilidade do PostgreSQL
+ * - SEM localStorage para dados de negócio
+ * - SUPERADMIN: store_id = NULL
+ * - SUPERADMIN: acesso global às lojas
+ * - UTILIZADOR NORMAL: limitado à sua store_id
  */
 
-import { i18n } from './i18n.js';
-
-const STORAGE_KEYS = {
-  STORES: 'gef_stores_v2',
-  PROFILES: 'gef_profiles_v2',
-  UNITS: 'gef_units_v2',
-  PRODUCTS: 'gef_products_v2',
-  PACKAGES: 'gef_packages_v2',
-  BATCHES: 'gef_batches_v2',
-  SUPPLIERS: 'gef_suppliers_v2',
-  PURCHASES: 'gef_purchases_v2',
-  PURCHASE_ITEMS: 'gef_purchase_items_v2',
-  STOCK_MOVEMENTS: 'gef_stock_movements_v2',
-  CASH_REGISTERS: 'gef_cash_registers_v2',
-  CASH_SESSIONS: 'gef_cash_sessions_v2',
-  CASH_MOVEMENTS: 'gef_cash_movements_v2',
-  SALES: 'gef_sales_v2',
-  SALE_ITEMS: 'gef_sale_items_v2',
-  LOSSES: 'gef_losses_v2',
-  CAPITAL_TRANSACTIONS: 'gef_capital_tx_v2',
-  FINANCIAL_TRANSACTIONS: 'gef_financial_tx_v2',
-  DAILY_CLOSINGS: 'gef_daily_closings_v2',
-  AUDIT_LOGS: 'gef_audit_logs_v2',
-  CUSTOMERS: 'gef_customers_v2',
-  CURRENT_STORE_ID: 'gef_current_store_id_v2',
-  AMBASSADORS: 'gef_ambassadors_v2',
-  QUOTES: 'gef_quotes_v1',
-  DELIVERIES: 'gef_deliveries_v1',
-  TRANSFERS: 'gef_transfers_v1',
-  CREDIT_TXS: 'gef_credit_txs_v1',
-  INVENTORIES: 'gef_inventories_v1'
-};
-
-class GefDatabase {
-  constructor() {
-    this.initialized = false;
-  }
-
-  async init() {
-    if (this.initialized) return;
-    // Check if seeds are already loaded in localStorage, if not fetch from json/
-    try {
-      if (!localStorage.getItem(STORAGE_KEYS.STORES)) {
-        const res = await fetch('json/stores.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.STORES, data);
-        }
-      }
-      if (!localStorage.getItem(STORAGE_KEYS.PRODUCTS)) {
-        const res = await fetch('json/products.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.PRODUCTS, data);
-        }
-      }
-      if (!localStorage.getItem(STORAGE_KEYS.UNITS)) {
-        const res = await fetch('json/units.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.UNITS, data);
-        }
-      }
-      if (!localStorage.getItem(STORAGE_KEYS.SUPPLIERS)) {
-        const res = await fetch('json/suppliers.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.SUPPLIERS, data);
-        }
-      }
-      if (!localStorage.getItem(STORAGE_KEYS.CUSTOMERS)) {
-        const res = await fetch('json/customers.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.CUSTOMERS, data);
-        }
-      }
-      if (!localStorage.getItem(STORAGE_KEYS.AMBASSADORS)) {
-        const res = await fetch('json/ambassadors.json');
-        if (res.ok) {
-          const data = await res.json();
-          this.set(STORAGE_KEYS.AMBASSADORS, data);
-        }
-      }
-    } catch (e) {
-      console.warn('Erro ao carregar arquivos JSON iniciais, usando fallback:', e);
-    }
-    
-    // Sincroniza moeda e idioma da filial ativa
-    const currentStore = this.getCurrentStore();
-    if (currentStore) {
-      if (currentStore.currency) i18n.setCurrency(currentStore.currency);
-      if (currentStore.language) i18n.setLanguage(currentStore.language);
-    }
-    
-    this.initialized = true;
-  }
-
-  get(key, defaultVal) {
-    try {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : defaultVal;
-    } catch {
-      return defaultVal;
-    }
-  }
-
-  set(key, val) {
-    try {
-      localStorage.setItem(key, JSON.stringify(val));
-    } catch (e) {
-      console.error('Falha ao salvar no localStorage:', e);
-    }
-  }
-
-  // --- STORES & MULTI-TENANCY ---
-  getStores() {
-    return this.get(STORAGE_KEYS.STORES, []);
-  }
-
-  getCurrentStoreId() {
-    const id = this.get(STORAGE_KEYS.CURRENT_STORE_ID, 'store-001');
-    const stores = this.getStores();
-    return stores.some(s => s.id === id) ? id : (stores[0]?.id || 'store-001');
-  }
-
-  setCurrentStoreId(storeId) {
-    this.set(STORAGE_KEYS.CURRENT_STORE_ID, storeId);
-    const store = this.getStores().find(s => s.id === storeId);
-    if (store) {
-      if (store.currency) i18n.setCurrency(store.currency);
-      if (store.language) i18n.setLanguage(store.language);
-    }
-  }
-
-  getCurrentStore() {
-    const id = this.getCurrentStoreId();
-    const stores = this.getStores();
-    return stores.find(s => s.id === id) || stores[0] || {
-      id: 'store-001',
-      code: 'LOJA-01',
-      name: 'GEF - Ferragens & Materiais de Construção',
-      tradeName: 'GEF Ferragens',
-      currency: 'MT'
-    };
-  }
-
-  saveStore(store) {
-    const stores = this.getStores();
-    const idx = stores.findIndex(s => s.id === store.id);
-    if (idx >= 0) stores[idx] = store;
-    else stores.push(store);
-    this.set(STORAGE_KEYS.STORES, stores);
-    if (store.id === this.getCurrentStoreId()) {
-      if (store.currency) i18n.setCurrency(store.currency);
-      if (store.language) i18n.setLanguage(store.language);
-    }
-    return store;
-  }
-
-  deleteStore(storeId) {
-    const stores = this.getStores();
-    const filtered = stores.filter(s => s.id !== storeId);
-    this.set(STORAGE_KEYS.STORES, filtered);
-    return true;
-  }
-
-  getConfig() {
-    const store = this.getCurrentStore();
-    return {
-      ...store,
-      companyName: store.name,
-      brandName: store.tradeName || store.name,
-      nuit: store.cnpjNif,
-      receiptPrinterWidth: store.receiptPrinterWidth || '80mm',
-      receiptFooterMessage: store.receiptFooter || store.receiptFooterMessage || 'Garantia de ferramentas: 30 dias com apresentação deste recibo.'
-    };
-  }
-
-  saveConfig(config) {
-    const store = this.getCurrentStore();
-    if (config.companyName || config.name) store.name = config.companyName || config.name;
-    if (config.brandName || config.tradeName) store.tradeName = config.brandName || config.tradeName;
-    if (config.nuit || config.cnpjNif) store.cnpjNif = config.nuit || config.cnpjNif;
-    if (config.phone) store.phone = config.phone;
-    if (config.email) store.email = config.email;
-    if (config.address) store.address = config.address;
-    if (config.currency) {
-      store.currency = config.currency;
-      i18n.setCurrency(config.currency);
-    }
-    if (config.language) {
-      store.language = config.language;
-      i18n.setLanguage(config.language);
-    }
-    if (config.receiptFooterMessage || config.receiptFooter) {
-      store.receiptFooter = config.receiptFooterMessage || config.receiptFooter;
-    }
-    if (config.receiptPrinterWidth) store.receiptPrinterWidth = config.receiptPrinterWidth;
-    if (config.scalePort) store.scalePort = config.scalePort;
-    if (config.scaleBaudRate) store.scaleBaudRate = config.scaleBaudRate;
-    this.saveStore(store);
-  }
-
-  // --- UNITS ---
-  getUnits() {
-    return this.get(STORAGE_KEYS.UNITS, []);
-  }
-
-  // --- PRODUCTS & BATCHES ---
-  getProducts(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.PRODUCTS, []);
-    return list
-      .filter(p => targetStore === 'ALL' || (p.storeId || 'store-001') === targetStore)
-      .map(p => {
-        const stock = p.stockByLocation || {
-          LOJA: p.currentStockBase || 0,
-          ARMAZEM: 0,
-          PATIO: 0
-        };
-        const conversions = p.conversions || p.packages || [];
-        return {
-          ...p,
-          stockByLocation: {
-            LOJA: stock.LOJA ?? p.currentStockBase ?? 0,
-            ARMAZEM: stock.ARMAZEM ?? 0,
-            PATIO: stock.PATIO ?? 0,
-            ...stock
-          },
-          conversions: conversions.map(c => ({
-            ...c,
-            packagingName: c.packagingName || c.packageName || 'Embalagem',
-            multiplier: c.multiplier ?? c.multiplierToBase ?? 1,
-            multiplierToBase: c.multiplierToBase ?? c.multiplier ?? 1
-          })),
-          minStockAlert: p.minStockAlert ?? p.minStockBase ?? 10,
-          minStockBase: p.minStockBase ?? p.minStockAlert ?? 10
-        };
-      });
-  }
-
-  getProductById(id) {
-    const all = this.get(STORAGE_KEYS.PRODUCTS, []);
-    return all.find(p => p.id === id);
-  }
-
-  saveProduct(product) {
-    const all = this.get(STORAGE_KEYS.PRODUCTS, []);
-    product.storeId = product.storeId || this.getCurrentStoreId();
-    const idx = all.findIndex(p => p.id === product.id);
-    if (idx >= 0) all[idx] = product;
-    else all.unshift(product);
-    this.set(STORAGE_KEYS.PRODUCTS, all);
-    return product;
-  }
-
-  deleteProduct(id) {
-    const all = this.get(STORAGE_KEYS.PRODUCTS, []);
-    const filtered = all.filter(p => p.id !== id);
-    this.set(STORAGE_KEYS.PRODUCTS, filtered);
-    return true;
-  }
-
-  // --- ALL BATCHES (FEFO Tracking) ---
-  getAllBatches(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const products = this.getProducts(targetStore);
-    const batches = [];
-    products.forEach(p => {
-      if (p.batches) {
-        p.batches.forEach(b => {
-          if (targetStore === 'ALL' || (b.storeId || p.storeId) === targetStore) {
-            batches.push({
-              ...b,
-              productName: p.name
-            });
-          }
-        });
-      }
-    });
-    return batches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
-  }
-
-  // --- CUSTOMERS ---
-  getCustomers(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const raw = this.get(STORAGE_KEYS.CUSTOMERS, []);
-    return raw
-      .filter(c => targetStore === 'ALL' || (c.storeId || 'store-001') === targetStore)
-      .map(c => {
-        const debt = Number(c.currentDebt ?? c.creditBalance ?? 0);
-        const limit = Number(c.creditLimit ?? 0);
-        return {
-          ...c,
-          currentDebt: isNaN(debt) ? 0 : debt,
-          creditBalance: isNaN(debt) ? 0 : debt,
-          creditLimit: isNaN(limit) ? 0 : limit,
-          document: c.document || c.taxId || '',
-          taxId: c.taxId || c.document || ''
-        };
-      });
-  }
-
-  saveCustomer(customer) {
-    const all = this.get(STORAGE_KEYS.CUSTOMERS, []);
-    customer.storeId = customer.storeId || this.getCurrentStoreId();
-    const idx = all.findIndex(c => c.id === customer.id);
-    if (idx >= 0) all[idx] = customer;
-    else all.unshift(customer);
-    this.set(STORAGE_KEYS.CUSTOMERS, all);
-    return customer;
-  }
-
-  deleteCustomer(id) {
-    const all = this.get(STORAGE_KEYS.CUSTOMERS, []);
-    const filtered = all.filter(c => c.id !== id);
-    this.set(STORAGE_KEYS.CUSTOMERS, filtered);
-    return true;
-  }
-
-  // --- SUPPLIERS ---
-  getSuppliers(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const raw = this.get(STORAGE_KEYS.SUPPLIERS, []);
-    return raw.filter(s => targetStore === 'ALL' || (s.storeId || 'store-001') === targetStore);
-  }
-
-  saveSupplier(supplier) {
-    const all = this.get(STORAGE_KEYS.SUPPLIERS, []);
-    supplier.storeId = supplier.storeId || this.getCurrentStoreId();
-    const idx = all.findIndex(s => s.id === supplier.id);
-    if (idx >= 0) all[idx] = supplier;
-    else all.unshift(supplier);
-    this.set(STORAGE_KEYS.SUPPLIERS, all);
-    return supplier;
-  }
-
-  deleteSupplier(id) {
-    const all = this.get(STORAGE_KEYS.SUPPLIERS, []);
-    const filtered = all.filter(s => s.id !== id);
-    this.set(STORAGE_KEYS.SUPPLIERS, filtered);
-    return true;
-  }
-
-  // --- CASH SESSIONS & SANGRIAS ---
-  getCashSessions(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.CASH_SESSIONS, []);
-    return list.filter(s => targetStore === 'ALL' || s.storeId === targetStore);
-  }
-
-  getActiveCashSession(storeId) {
-    const sessions = this.getCashSessions(storeId);
-    return sessions.find(s => s.status === 'OPEN') || null;
-  }
-
-  openCashSession(operatorName, initialCash, storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const sessions = this.get(STORAGE_KEYS.CASH_SESSIONS, []);
-    
-    // Close previous open session
-    sessions.forEach(s => {
-      if (s.storeId === targetStore && s.status === 'OPEN') {
-        s.status = 'CLOSED';
-        s.closedAt = new Date().toISOString();
-      }
-    });
-
-    const newSession = {
-      id: 'session-' + Date.now(),
-      storeId: targetStore,
-      userId: 'user-001',
-      operatorName: operatorName || 'Operador Caixa',
-      openedAt: new Date().toISOString(),
-      initialCash: Number(initialCash) || 0,
-      initialFloat: Number(initialCash) || 0,
-      expectedCash: Number(initialCash) || 0,
-      totalSalesCash: 0,
-      totalSalesCard: 0,
-      totalSalesPix: 0,
-      totalSalesOther: 0,
-      totalSangrias: 0,
-      totalEntries: 0,
-      status: 'OPEN'
-    };
-
-    sessions.unshift(newSession);
-    this.set(STORAGE_KEYS.CASH_SESSIONS, sessions);
-
-    this.addCashMovement({
-      id: 'mov-' + Date.now(),
-      storeId: targetStore,
-      sessionId: newSession.id,
-      movementType: 'INITIAL',
-      paymentMethod: 'CASH',
-      amount: initialCash,
-      reason: 'Abertura de Sessão de Caixa (Fundo de Troco)',
-      createdAt: new Date().toISOString()
-    });
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: 'ABERTURA_CAIXA',
-      entity: 'cash_sessions',
-      entityId: newSession.id,
-      details: `Caixa aberto por ${operatorName} com fundo de troco ${initialCash} MT.`,
-      createdAt: new Date().toISOString()
-    });
-
-    return newSession;
-  }
-
-  closeCashSession(sessionId, countedCash, notes) {
-    const sessions = this.get(STORAGE_KEYS.CASH_SESSIONS, []);
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) throw new Error('Sessão de caixa não encontrada.');
-    if (session.status === 'CLOSED') throw new Error('Sessão já está fechada.');
-
-    const difference = Number((countedCash - session.expectedCash).toFixed(2));
-    session.closedAt = new Date().toISOString();
-    session.countedCash = countedCash;
-    session.cashDifference = difference;
-    session.difference = difference;
-    session.status = 'CLOSED';
-    session.isClosed = true;
-    session.notes = notes;
-
-    this.set(STORAGE_KEYS.CASH_SESSIONS, sessions);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: session.storeId,
-      action: 'FECHAMENTO_CAIXA',
-      entity: 'cash_sessions',
-      entityId: session.id,
-      details: `Fechamento de caixa. Esperado: ${session.expectedCash}, Contado: ${countedCash}, Diferença: ${difference} MT.`,
-      createdAt: new Date().toISOString()
-    });
-
-    return {
-      success: true,
-      expected_cash: session.expectedCash,
-      expectedCash: session.expectedCash,
-      counted_cash: countedCash,
-      countedCash: countedCash,
-      difference
-    };
-  }
-
-  registerSangria(storeId, sessionId, amount, destination, reason, notes) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const sessions = this.get(STORAGE_KEYS.CASH_SESSIONS, []);
-    const session = sessions.find(s => s.id === sessionId && s.storeId === targetStore);
-    if (!session) throw new Error('Sessão de caixa não encontrada.');
-    if (session.status !== 'OPEN') throw new Error('A sessão de caixa está fechada.');
-    if (amount <= 0) throw new Error('O valor da sangria deve ser maior que zero.');
-
-    const movId = 'mov-sangria-' + Date.now();
-
-    this.addCashMovement({
-      id: movId,
-      storeId: targetStore,
-      sessionId,
-      movementType: destination || 'SANGRIA_BANK',
-      paymentMethod: 'CASH',
-      amount,
-      reason,
-      destination,
-      notes,
-      createdAt: new Date().toISOString()
-    });
-
-    session.totalSangrias = Number((session.totalSangrias + amount).toFixed(2));
-    session.expectedCash = Number((session.expectedCash - amount).toFixed(2));
-    this.set(STORAGE_KEYS.CASH_SESSIONS, sessions);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: 'SANGRIA',
-      entity: 'cash_movements',
-      entityId: movId,
-      details: `Sangria de ${amount} MT (${destination}). Motivo: ${reason}`,
-      createdAt: new Date().toISOString()
-    });
-
-    return { success: true, movement_id: movId };
-  }
-
-  getCashMovements(sessionId) {
-    const list = this.get(STORAGE_KEYS.CASH_MOVEMENTS, []);
-    return sessionId ? list.filter(m => m.sessionId === sessionId) : list;
-  }
-
-  addCashMovement(mov) {
-    const list = this.get(STORAGE_KEYS.CASH_MOVEMENTS, []);
-    list.unshift(mov);
-    this.set(STORAGE_KEYS.CASH_MOVEMENTS, list);
-  }
-
-  // --- SALES & ATOMIC POS (FEFO) ---
-  getSales(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.SALES, []);
-    return list.filter(s => targetStore === 'ALL' || s.storeId === targetStore);
-  }
-
-  processAtomicSale(storeId, sessionId, customerName, customerTaxId, paymentMethod, discountAmount, items, extraInfo) {
-    const products = this.getProducts();
-    const targetStore = storeId || this.getCurrentStoreId();
-
-    let activeSession = sessionId ? this.getCashSessions(targetStore).find(s => s.id === sessionId && s.status === 'OPEN') : null;
-    if (!activeSession) {
-      activeSession = this.getActiveCashSession(targetStore);
-    }
-
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const randPart = Math.floor(100000 + Math.random() * 900000);
-    const receiptNumber = `REC-${dateStr}-${randPart}`;
-    const saleId = 'sale-' + Date.now() + '-' + randPart;
-
-    let totalGross = 0;
-    let totalCogs = 0;
-    const saleItems = [];
-
-    // Precalculate totals & stock validation
-    for (const item of items) {
-      const prod = products.find(p => p.id === item.productId);
-      if (!prod) throw new Error(`Produto não encontrado: ${item.productId}`);
-      const mult = item.multiplierToBase || item.multiplier || 1;
-      const qtyNeeded = item.quantity * mult;
-      if (prod.currentStockBase < qtyNeeded) {
-        throw new Error(`Estoque insuficiente para "${prod.name}". Disponível: ${prod.currentStockBase} ${prod.baseUnit}, Solicitado: ${qtyNeeded} ${prod.baseUnit}`);
-      }
-      totalGross += Number((item.quantity * item.unitPrice).toFixed(2));
-    }
-
-    const discount = Number(discountAmount || 0);
-    const totalNet = Math.max(0, Number((totalGross - discount).toFixed(2)));
-
-    // Deduct stock using FEFO
-    for (const item of items) {
-      const prod = products.find(p => p.id === item.productId);
-      const mult = item.multiplierToBase || item.multiplier || 1;
-      let qtyNeeded = item.quantity * mult;
-      let itemCogs = 0;
-
-      if (!prod.batches) prod.batches = [];
-      prod.batches.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
-
-      for (const batch of prod.batches) {
-        if (qtyNeeded <= 0) break;
-        if (batch.currentQuantityBase <= 0) continue;
-        const qtyFromBatch = Math.min(batch.currentQuantityBase, qtyNeeded);
-        const batchCogs = qtyFromBatch * (batch.costPerBase || prod.costPriceBase);
-        itemCogs += batchCogs;
-
-        batch.currentQuantityBase = Number((batch.currentQuantityBase - qtyFromBatch).toFixed(3));
-        if (batch.currentQuantityBase <= 0) {
-          batch.status = 'EXHAUSTED';
-        }
-
-        saleItems.push({
-          saleId,
-          storeId: targetStore,
-          productId: prod.id,
-          productCode: prod.code,
-          productName: prod.name,
-          batchId: batch.id,
-          batchNumber: batch.batchNumber,
-          expiryDate: batch.expiryDate,
-          packageId: item.packageId,
-          packagingName: item.packagingName || item.packageName || prod.baseUnit,
-          selectedUnit: item.selectedUnit || item.packagingName || prod.baseUnit,
-          unitId: item.unitId,
-          quantity: Number((qtyFromBatch / mult).toFixed(3)),
-          quantitySold: Number((qtyFromBatch / mult).toFixed(3)),
-          multiplierToBase: mult,
-          quantityBase: qtyFromBatch,
-          unitPrice: item.unitPrice,
-          total: Number(((qtyFromBatch / mult) * item.unitPrice).toFixed(2)),
-          totalPrice: Number(((qtyFromBatch / mult) * item.unitPrice).toFixed(2)),
-          unitCogs: batch.costPerBase,
-          costPriceBase: batch.costPerBase,
-          totalCogs: Number(batchCogs.toFixed(4))
-        });
-
-        qtyNeeded -= qtyFromBatch;
-      }
-
-      if (qtyNeeded > 0) {
-        const fallbackCost = prod.costPriceBase || 0;
-        const batchCogs = qtyNeeded * fallbackCost;
-        itemCogs += batchCogs;
-        saleItems.push({
-          saleId,
-          storeId: targetStore,
-          productId: prod.id,
-          productCode: prod.code,
-          productName: prod.name,
-          packageId: item.packageId,
-          packagingName: item.packagingName || item.packageName || prod.baseUnit,
-          selectedUnit: item.selectedUnit || item.packagingName || prod.baseUnit,
-          unitId: item.unitId,
-          quantity: Number((qtyNeeded / mult).toFixed(3)),
-          quantitySold: Number((qtyNeeded / mult).toFixed(3)),
-          multiplierToBase: mult,
-          quantityBase: qtyNeeded,
-          unitPrice: item.unitPrice,
-          total: Number(((qtyNeeded / mult) * item.unitPrice).toFixed(2)),
-          totalPrice: Number(((qtyNeeded / mult) * item.unitPrice).toFixed(2)),
-          unitCogs: fallbackCost,
-          costPriceBase: fallbackCost,
-          totalCogs: Number(batchCogs.toFixed(4))
-        });
-      }
-
-      const totalUnitsSold = item.quantity * mult;
-      prod.currentStockBase = Number((prod.currentStockBase - totalUnitsSold).toFixed(3));
-      if (!prod.stockByLocation) {
-        prod.stockByLocation = { LOJA: prod.currentStockBase, ARMAZEM: 0, PATIO: 0 };
-      } else {
-        prod.stockByLocation.LOJA = Math.max(0, Number(((prod.stockByLocation.LOJA || 0) - totalUnitsSold).toFixed(3)));
-      }
-      totalCogs += itemCogs;
-    }
-
-    this.set(STORAGE_KEYS.PRODUCTS, products);
-
-    const grossProfit = Number((totalNet - totalCogs).toFixed(2));
-    const sales = this.get(STORAGE_KEYS.SALES, []);
-    const newSale = {
-      id: saleId,
-      storeId: targetStore,
-      sessionId: activeSession?.id,
-      saleNumber: 'VEN-' + (sales.length + 1001),
-      receiptNumber,
-      customerName: customerName || 'Consumidor Final',
-      customerTaxId,
-      customerPhone: extraInfo?.customerPhone,
-      customerId: extraInfo?.customerId,
-      cashierName: extraInfo?.cashierName || 'Operador Balcão',
-      subtotal: totalGross,
-      totalGross,
-      discountAmount: discount,
-      discount,
-      totalNet,
-      total: totalNet,
-      totalCogs: Number(totalCogs.toFixed(4)),
-      grossProfit,
-      paymentMethod,
-      paymentDetails: extraInfo?.paymentDetails || {},
-      needsDelivery: extraInfo?.needsDelivery || false,
-      notes: extraInfo?.notes || '',
-      status: 'CONCLUIDA',
-      location: extraInfo?.location || 'LOJA',
-      createdAt: now.toISOString(),
-      timestamp: now.toISOString(),
-      items: saleItems
-    };
-
-    sales.unshift(newSale);
-    this.set(STORAGE_KEYS.SALES, sales);
-
-    // If Credit / Fiado, add to customer balance
-    if (paymentMethod === 'CREDITO_FIADO' && extraInfo?.customerId) {
-      const customers = this.getCustomers();
-      const customer = customers.find(c => c.id === extraInfo.customerId);
-      if (customer) {
-        customer.currentDebt = (customer.currentDebt || 0) + totalNet;
-        customer.creditBalance = customer.currentDebt;
-        this.saveCustomer(customer);
-
-        // Record credit transaction
-        const creditTxs = this.get(STORAGE_KEYS.CREDIT_TXS, []);
-        creditTxs.unshift({
-          id: 'ctx-' + Date.now(),
-          customerId: customer.id,
-          customerName: customer.name,
-          type: 'DEBITO_VENDA',
-          amount: totalNet,
-          newBalance: customer.currentDebt,
-          notes: `Compra a fiado na Venda ${newSale.saleNumber}`,
-          operatorName: newSale.cashierName,
-          timestamp: now.toISOString()
-        });
-        this.set(STORAGE_KEYS.CREDIT_TXS, creditTxs);
-      }
-    }
-
-    // Update Cash Session
-    if (activeSession) {
-      const sessions = this.get(STORAGE_KEYS.CASH_SESSIONS, []);
-      const currentSession = sessions.find(s => s.id === activeSession.id);
-      if (currentSession) {
-        if (paymentMethod === 'DINHEIRO' || paymentMethod === 'CASH') {
-          currentSession.totalSalesCash = Number((currentSession.totalSalesCash + totalNet).toFixed(2));
-          currentSession.expectedCash = Number((currentSession.expectedCash + totalNet).toFixed(2));
-        } else {
-          currentSession.totalSalesOther = Number((currentSession.totalSalesOther + totalNet).toFixed(2));
-        }
-        this.set(STORAGE_KEYS.CASH_SESSIONS, sessions);
-      }
-      this.addCashMovement({
-        id: 'mov-sale-' + Date.now(),
-        storeId: targetStore,
-        sessionId: activeSession.id,
-        movementType: 'SALE',
-        paymentMethod,
-        amount: totalNet,
-        reason: `Venda ${receiptNumber}`,
-        createdAt: now.toISOString()
-      });
-    }
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: 'VENDA',
-      entity: 'sales',
-      entityId: saleId,
-      details: `Venda ${newSale.saleNumber} (${receiptNumber}) total ${totalNet} MT via ${paymentMethod} para ${customerName}.`,
-      createdAt: now.toISOString()
-    });
-
-    return {
-      success: true,
-      sale_id: saleId,
-      receipt_number: receiptNumber,
-      total_gross: totalGross,
-      discount_amount: discount,
-      total_net: totalNet,
-      payment_method: paymentMethod,
-      sale: newSale
-    };
-  }
-
-  processSale(saleData) {
-    return this.processAtomicSale(
-      saleData.storeId || this.getCurrentStoreId(),
-      saleData.sessionId || saleData.shiftId,
-      saleData.customerName || 'Consumidor Final',
-      saleData.customerTaxId || saleData.customerNuit,
-      saleData.paymentMethod || 'DINHEIRO',
-      saleData.discount || saleData.discountAmount || 0,
-      saleData.items || [],
-      {
-        customerId: saleData.customerId,
-        customerPhone: saleData.customerPhone,
-        cashierName: saleData.cashierName || 'Operador Balcão',
-        paymentDetails: saleData.paymentDetails,
-        needsDelivery: saleData.needsDelivery,
-        notes: saleData.notes,
-        location: saleData.location || 'LOJA'
-      }
-    ).then(res => res.sale);
-  }
-
-  reverseSale(saleId, reason) {
-    const sales = this.get(STORAGE_KEYS.SALES, []);
-    const sale = sales.find(s => s.id === saleId);
-    if (!sale) throw new Error('Venda não encontrada.');
-    if (sale.status === 'CANCELADA' || sale.status === 'REVERSED') {
-      throw new Error('Esta venda já foi estornada anteriormente.');
-    }
-
-    const products = this.getProducts();
-
-    // Recompose product & batch stocks
-    for (const item of sale.items) {
-      const prod = products.find(p => p.id === item.productId);
-      if (prod) {
-        prod.currentStockBase = Number((prod.currentStockBase + item.quantityBase).toFixed(3));
-        if (prod.stockByLocation) {
-          prod.stockByLocation.LOJA = (prod.stockByLocation.LOJA || 0) + item.quantityBase;
-        }
-        if (item.batchId && prod.batches) {
-          const batch = prod.batches.find(b => b.id === item.batchId);
-          if (batch) {
-            batch.currentQuantityBase = Number((batch.currentQuantityBase + item.quantityBase).toFixed(3));
-            batch.status = 'ACTIVE';
-          }
-        }
-      }
-    }
-    this.set(STORAGE_KEYS.PRODUCTS, products);
-
-    // If customer had credit debt, reverse it
-    if (sale.paymentMethod === 'CREDITO_FIADO' && sale.customerId) {
-      const customers = this.getCustomers();
-      const customer = customers.find(c => c.id === sale.customerId);
-      if (customer) {
-        customer.currentDebt = Math.max(0, (customer.currentDebt || 0) - sale.total);
-        customer.creditBalance = customer.currentDebt;
-        this.saveCustomer(customer);
-      }
-    }
-
-    sale.status = 'CANCELADA';
-    sale.reversalReason = reason;
-    sale.reversedAt = new Date().toISOString();
-    this.set(STORAGE_KEYS.SALES, sales);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: sale.storeId,
-      action: 'ESTORNO_VENDA',
-      entity: 'sales',
-      entityId: sale.id,
-      details: `Estorno reverso atômico da venda ${sale.saleNumber}. Motivo: ${reason}`,
-      createdAt: new Date().toISOString()
-    });
-
-    return true;
-  }
-
-  revertSale(saleId, operatorName, reason) {
-    return this.reverseSale(saleId, reason || 'Estorno manual solicitado por ' + operatorName);
-  }
-
-  // --- PURCHASES ---
-  getPurchases(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.PURCHASES, []);
-    return list.filter(p => targetStore === 'ALL' || p.storeId === targetStore);
-  }
-
-  savePurchase(purchase, operatorName) {
-    const targetStore = purchase.storeId || this.getCurrentStoreId();
-    const products = this.getProducts();
-
-    // Add inventory for each purchased item
-    for (const it of purchase.items || []) {
-      const prod = products.find(p => p.id === it.productId);
-      if (prod) {
-        const qtyBase = it.quantityPurchased || it.quantity || 1;
-        prod.currentStockBase = Number((prod.currentStockBase + qtyBase).toFixed(3));
-        const destLoc = purchase.destinationLocation || 'ARMAZEM';
-        if (!prod.stockByLocation) {
-          prod.stockByLocation = { LOJA: 0, ARMAZEM: 0, PATIO: 0 };
-        }
-        prod.stockByLocation[destLoc] = (prod.stockByLocation[destLoc] || 0) + qtyBase;
-
-        if (it.unitCost && it.unitCost > 0) {
-          // Weighted average cost formula
-          const prevTotalValue = (prod.currentStockBase - qtyBase) * prod.costPriceBase;
-          const newAdditionValue = qtyBase * it.unitCost;
-          prod.costPriceBase = Number(((prevTotalValue + newAdditionValue) / prod.currentStockBase).toFixed(2));
-        }
-
-        if (it.newSalePrice && it.newSalePrice > 0) {
-          prod.salePriceBase = it.newSalePrice;
-        }
-
-        // Add Batch if specified
-        if (it.batchNumber) {
-          if (!prod.batches) prod.batches = [];
-          prod.batches.push({
-            id: 'batch-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-            storeId: targetStore,
-            productId: prod.id,
-            productName: prod.name,
-            batchNumber: it.batchNumber,
-            supplierId: purchase.supplierId,
-            initialQuantityBase: qtyBase,
-            currentQuantityBase: qtyBase,
-            costPerBase: it.unitCost || prod.costPriceBase,
-            expiryDate: it.expiryDate || '2030-01-01',
-            status: 'ACTIVE'
-          });
-        }
-      }
-    }
-    this.set(STORAGE_KEYS.PRODUCTS, products);
-
-    const purchases = this.get(STORAGE_KEYS.PURCHASES, []);
-    purchase.storeId = targetStore;
-    purchase.createdAt = new Date().toISOString();
-    purchases.unshift(purchase);
-    this.set(STORAGE_KEYS.PURCHASES, purchases);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: 'ENTRADA_COMPRA',
-      entity: 'purchases',
-      entityId: purchase.id,
-      details: `Entrada de compra NF ${purchase.invoiceNumber} do fornecedor ${purchase.supplierName} total ${purchase.totalCost} MT.`,
-      createdAt: new Date().toISOString()
-    });
-
-    return purchase;
-  }
-
-  // --- LOSSES / AVARIAS ---
-  getLosses(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.LOSSES, []);
-    return list.filter(l => targetStore === 'ALL' || l.storeId === targetStore);
-  }
-
-  registerLoss(loss) {
-    const targetStore = loss.storeId || this.getCurrentStoreId();
-    const products = this.getProducts();
-    const prod = products.find(p => p.id === loss.productId);
-    if (!prod) throw new Error('Produto não encontrado.');
-
-    const qty = loss.quantityBase || 1;
-    prod.currentStockBase = Math.max(0, Number((prod.currentStockBase - qty).toFixed(3)));
-    const loc = loss.location || 'LOJA';
-    if (prod.stockByLocation) {
-      prod.stockByLocation[loc] = Math.max(0, (prod.stockByLocation[loc] || 0) - qty);
-    }
-    this.set(STORAGE_KEYS.PRODUCTS, products);
-
-    const losses = this.get(STORAGE_KEYS.LOSSES, []);
-    loss.storeId = targetStore;
-    loss.timestamp = loss.timestamp || new Date().toISOString();
-    losses.unshift(loss);
-    this.set(STORAGE_KEYS.LOSSES, losses);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: 'PERDA_REGISTRADA',
-      entity: 'losses',
-      entityId: loss.id,
-      details: `Baixa de avaria/perda de ${qty} ${loss.baseUnit} de ${prod.name} (${loss.reason}). Prejuízo: ${loss.totalLossCost} MT.`,
-      createdAt: new Date().toISOString()
-    });
-
-    return loss;
-  }
-
-  // --- QUOTES / ORÇAMENTOS DE OBRA ---
-  getQuotes(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.QUOTES, []);
-    return list.filter(q => targetStore === 'ALL' || (q.storeId || 'store-001') === targetStore);
-  }
-
-  saveQuote(quote) {
-    quote.storeId = quote.storeId || this.getCurrentStoreId();
-    const list = this.getQuotes('ALL');
-    const idx = list.findIndex(q => q.id === quote.id);
-    if (idx >= 0) list[idx] = quote;
-    else list.unshift(quote);
-    this.set(STORAGE_KEYS.QUOTES, list);
-    return quote;
-  }
-
-  deleteQuote(id) {
-    const list = this.getQuotes('ALL');
-    const filtered = list.filter(q => q.id !== id);
-    this.set(STORAGE_KEYS.QUOTES, filtered);
-    return true;
-  }
-
-  // --- DELIVERIES EM CANTEIRO ---
-  getDeliveries(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.DELIVERIES, []);
-    return list.filter(d => targetStore === 'ALL' || (d.storeId || 'store-001') === targetStore);
-  }
-
-  saveDelivery(delivery) {
-    delivery.storeId = delivery.storeId || this.getCurrentStoreId();
-    const list = this.getDeliveries('ALL');
-    const idx = list.findIndex(d => d.id === delivery.id);
-    if (idx >= 0) list[idx] = delivery;
-    else list.unshift(delivery);
-    this.set(STORAGE_KEYS.DELIVERIES, list);
-    return delivery;
-  }
-
-  deleteDelivery(id) {
-    const list = this.getDeliveries('ALL');
-    const filtered = list.filter(d => d.id !== id);
-    this.set(STORAGE_KEYS.DELIVERIES, filtered);
-    return true;
-  }
-
-  // --- TRANSFERS ---
-  getTransfers(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.TRANSFERS, []);
-    return list.filter(t => targetStore === 'ALL' || (t.storeId || 'store-001') === targetStore);
-  }
-
-  saveTransfer(transfer) {
-    transfer.storeId = transfer.storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.TRANSFERS, []);
-    list.unshift(transfer);
-    this.set(STORAGE_KEYS.TRANSFERS, list);
-
-    if (transfer.productId && transfer.quantityBase && transfer.fromLocation && transfer.toLocation) {
-      const product = this.getProductById(transfer.productId);
-      if (product) {
-        if (!product.stockByLocation) {
-          product.stockByLocation = { LOJA: product.currentStockBase || 0, ARMAZEM: 0, PATIO: 0 };
-        }
-        product.stockByLocation[transfer.fromLocation] = Math.max(0, (product.stockByLocation[transfer.fromLocation] || 0) - transfer.quantityBase);
-        product.stockByLocation[transfer.toLocation] = (product.stockByLocation[transfer.toLocation] || 0) + transfer.quantityBase;
-        this.saveProduct(product);
-      }
-    }
-    return transfer;
-  }
-
-  transferStock(transferObj) {
-    return this.saveTransfer(transferObj);
-  }
-
-  // --- CUSTOMER CREDIT & PAYMENTS ---
-  getCustomerCreditHistory(customerId) {
-    const all = this.get(STORAGE_KEYS.CREDIT_TXS, []);
-    return all.filter(t => t.customerId === customerId);
-  }
-
-  registerCustomerPayment(customerId, amount, paymentMethod, operatorName, notes) {
-    const customers = this.getCustomers();
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) throw new Error('Cliente não encontrado.');
-
-    const oldDebt = customer.currentDebt || 0;
-    const newDebt = Math.max(0, oldDebt - amount);
-    customer.currentDebt = newDebt;
-    customer.creditBalance = newDebt;
-    this.saveCustomer(customer);
-
-    const tx = {
-      id: 'ctx-' + Date.now(),
-      customerId,
-      customerName: customer.name,
-      type: 'PAGAMENTO',
-      amount,
-      balanceAfter: newDebt,
-      newBalance: newDebt,
-      description: notes || 'Amortização de dívida',
-      notes: notes || 'Pagamento de conta',
-      operatorName: operatorName || 'Operador',
-      timestamp: new Date().toISOString()
-    };
-
-    const all = this.get(STORAGE_KEYS.CREDIT_TXS, []);
-    all.unshift(tx);
-    this.set(STORAGE_KEYS.CREDIT_TXS, all);
-
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: customer.storeId || this.getCurrentStoreId(),
-      action: 'RECEBIMENTO_DIVIDA',
-      entity: 'customers',
-      entityId: customerId,
-      details: `Recebimento de dívida de ${amount} MT de ${customer.name} via ${paymentMethod}.`,
-      createdAt: new Date().toISOString()
-    });
-
-    return tx;
-  }
-
-  // --- AMBASSADORS & PARTNERS ---
-  getAmbassadors() {
-    let list = this.get(STORAGE_KEYS.AMBASSADORS, []);
-    if (!list || list.length === 0) {
-      list = [
-        {
-          id: 'user-embaixador-05',
-          name: 'Paulo Cossa (Embaixador Parceiro)',
-          email: 'paulo.embaixador@gef.co.mz',
-          phone: '+258 84 764 0849',
-          code: 'GEF-PAULO-2026',
-          commissionRate: 15,
-          totalStores: 3,
-          activeStores: 2,
-          pendingCommissions: 1425.00,
-          paidCommissions: 4275.00,
-          paymentDetails: 'M-Pesa (+258 84 764 0849)',
-          status: 'ATIVO',
-          registeredStores: [
-            {
-              id: 'st-ref-01',
-              name: 'Ferragens Aliança da Matola',
-              ownerName: 'Alberto Macamo',
-              phone: '+258 84 112 3344',
-              city: 'Matola',
-              monthlyFee: 3500,
-              paymentStatus: 'PAGO',
-              lastPaymentDate: '05/09/2026',
-              nextDueDate: '05/10/2026',
-              commissionRate: 15,
-              monthlyCommission: 525,
-              contractDurationMonths: 12,
-              monthsActive: 4,
-              monthsRemaining: 8,
-              commissionDurationText: '12 meses (restam 8 meses)',
-              totalCommissionEarned: 2100,
-              registeredAt: '2026-05-10T10:00:00Z'
-            },
-            {
-              id: 'st-ref-02',
-              name: 'Construções & Materiais Costa do Sol',
-              ownerName: 'Eng. Victor Mabote',
-              phone: '+258 82 998 7766',
-              city: 'Maputo',
-              monthlyFee: 4500,
-              paymentStatus: 'PAGO',
-              lastPaymentDate: '01/09/2026',
-              nextDueDate: '01/10/2026',
-              commissionRate: 20,
-              monthlyCommission: 900,
-              contractDurationMonths: 24,
-              monthsActive: 6,
-              monthsRemaining: 18,
-              commissionDurationText: '24 meses (restam 18 meses)',
-              totalCommissionEarned: 5400,
-              registeredAt: '2026-03-01T09:00:00Z'
-            },
-            {
-              id: 'st-ref-03',
-              name: 'Ferragem Central de Boane',
-              ownerName: 'Dra. Elisa Sitoe',
-              phone: '+258 84 555 4321',
-              city: 'Boane',
-              monthlyFee: 2500,
-              paymentStatus: 'PENDENTE',
-              lastPaymentDate: '10/08/2026',
-              nextDueDate: '10/09/2026',
-              commissionRate: 15,
-              monthlyCommission: 375,
-              contractDurationMonths: 12,
-              monthsActive: 2,
-              monthsRemaining: 10,
-              commissionDurationText: '12 meses (restam 10 meses)',
-              totalCommissionEarned: 750,
-              registeredAt: '2026-07-15T08:00:00Z'
-            }
-          ],
-          payoutHistory: [
-            {
-              id: 'LIQ-90142',
-              date: '02/08/2026 14:20',
-              amount: 2850.00,
-              method: 'M-Pesa',
-              receipt: 'MP-260802.9912.C01',
-              status: 'LIQUIDADO'
-            },
-            {
-              id: 'LIQ-88210',
-              date: '03/07/2026 11:05',
-              amount: 1425.00,
-              method: 'M-Pesa',
-              receipt: 'MP-260703.4410.A09',
-              status: 'LIQUIDADO'
-            }
-          ]
-        },
-        {
-          id: 'EMB-842',
-          name: 'Mateus Chissano (Embaixador Maputo)',
-          email: 'mateus.chissano@gefparceiros.co.mz',
-          phone: '+258 84 333 1122',
-          code: 'EMB-842',
-          commissionRate: 15,
-          totalStores: 2,
-          activeStores: 2,
-          pendingCommissions: 1050.00,
-          paidCommissions: 3150.00,
-          paymentDetails: 'M-Pesa (+258 84 333 1122)',
-          status: 'ATIVO',
-          registeredStores: [
-            {
-              id: 'st-ref-04',
-              name: 'Ferragens & Tintas de Zimpeto',
-              ownerName: 'Simão Nhantumbo',
-              phone: '+258 84 990 1122',
-              city: 'Maputo',
-              monthlyFee: 3500,
-              paymentStatus: 'PAGO',
-              lastPaymentDate: '03/09/2026',
-              nextDueDate: '03/10/2026',
-              commissionRate: 15,
-              monthlyCommission: 525,
-              contractDurationMonths: 12,
-              monthsActive: 3,
-              monthsRemaining: 9,
-              commissionDurationText: '12 meses (restam 9 meses)',
-              totalCommissionEarned: 1575,
-              registeredAt: '2026-06-01T10:00:00Z'
-            },
-            {
-              id: 'st-ref-05',
-              name: 'Depósito Progresso de Marracuene',
-              ownerName: 'Helena Langa',
-              phone: '+258 86 443 2211',
-              city: 'Marracuene',
-              monthlyFee: 3500,
-              paymentStatus: 'PAGO',
-              lastPaymentDate: '08/09/2026',
-              nextDueDate: '08/10/2026',
-              commissionRate: 15,
-              monthlyCommission: 525,
-              contractDurationMonths: 12,
-              monthsActive: 3,
-              monthsRemaining: 9,
-              commissionDurationText: '12 meses (restam 9 meses)',
-              totalCommissionEarned: 1575,
-              registeredAt: '2026-06-10T11:00:00Z'
-            }
-          ],
-          payoutHistory: [
-            {
-              id: 'LIQ-77123',
-              date: '05/08/2026 16:45',
-              amount: 2100.00,
-              method: 'M-Pesa',
-              receipt: 'MP-260805.7712.D04',
-              status: 'LIQUIDADO'
-            }
-          ]
-        }
-      ];
-      this.set(STORAGE_KEYS.AMBASSADORS, list);
-    }
-
-    // Normalization check for any existing items
-    list = list.map(amb => {
-      if (!amb.registeredStores) {
-        amb.registeredStores = [];
-      }
-      if (!amb.payoutHistory) {
-        amb.payoutHistory = [];
-      }
-      if (typeof amb.pendingCommissions !== 'number') {
-        amb.pendingCommissions = 0;
-      }
-      if (typeof amb.paidCommissions !== 'number') {
-        amb.paidCommissions = 0;
-      }
-      if (!amb.commissionRate) {
-        amb.commissionRate = amb.commissionPercent || 15;
-      }
-      amb.totalStores = amb.registeredStores.length;
-      amb.activeStores = amb.registeredStores.filter(s => s.paymentStatus === 'PAGO').length;
-      return amb;
-    });
-
-    return list;
-  }
-
-  saveAmbassador(ambassador) {
-    const list = this.getAmbassadors();
-    const idx = list.findIndex(a => a.id === ambassador.id);
-    if (idx >= 0) list[idx] = ambassador;
-    else list.push(ambassador);
-    this.set(STORAGE_KEYS.AMBASSADORS, list);
-    return ambassador;
-  }
-
-  addAmbassadorReferredStore(ambassadorId, storeData) {
-    const list = this.getAmbassadors();
-    const amb = list.find(a => a.id === ambassadorId);
-    if (!amb) throw new Error('Embaixador não encontrado.');
-
-    if (!amb.registeredStores) amb.registeredStores = [];
-
-    const monthlyFee = Number(storeData.monthlyFee) || 3500;
-    const rate = Number(storeData.commissionRate) || amb.commissionRate || amb.commissionPercent || 15;
-    const monthlyCommission = Number(((monthlyFee * rate) / 100).toFixed(2));
-    const durationMonths = Number(storeData.contractDurationMonths) || 12;
-
-    const newStore = {
-      id: 'store-ref-' + Date.now(),
-      name: storeData.name,
-      ownerName: storeData.ownerName || 'Responsável Comercial',
-      phone: storeData.phone || '+258 84 000 0000',
-      city: storeData.city || 'Maputo',
-      monthlyFee,
-      paymentStatus: storeData.paymentStatus || 'PAGO', // 'PAGO', 'PENDENTE', 'ATRASADO'
-      lastPaymentDate: new Date().toLocaleDateString('pt-PT'),
-      nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-PT'),
-      commissionRate: rate,
-      monthlyCommission,
-      contractDurationMonths: durationMonths,
-      monthsActive: 1,
-      monthsRemaining: Math.max(0, durationMonths - 1),
-      commissionDurationText: durationMonths >= 99 ? 'Contrato Vitalício' : `${durationMonths} meses (restam ${durationMonths - 1} meses)`,
-      totalCommissionEarned: monthlyCommission,
-      registeredAt: new Date().toISOString()
-    };
-
-    amb.registeredStores.unshift(newStore);
-    amb.totalStores = amb.registeredStores.length;
-    amb.activeStores = amb.registeredStores.filter(s => s.paymentStatus === 'PAGO').length;
-    amb.pendingCommissions = Number(((amb.pendingCommissions || 0) + monthlyCommission).toFixed(2));
-
-    this.saveAmbassador(amb);
-    return newStore;
-  }
-
-  payAmbassadorCommission(ambassadorId, amount, method, ref) {
-    const list = this.getAmbassadors();
-    const amb = list.find(a => a.id === ambassadorId);
-    if (!amb) throw new Error('Embaixador não encontrado.');
-
-    const paidAmount = (amount !== undefined && amount !== null && amount > 0) ? amount : (amb.pendingCommissions || 0);
-
-    // Conforme exigência do sistema: O valor da comissão deve ser ZERADO quando o Super Administrador clicar em efetuar pagamento
-    amb.pendingCommissions = 0;
-    amb.paidCommissions = Number(((amb.paidCommissions || 0) + paidAmount).toFixed(2));
-
-    if (!amb.payoutHistory) amb.payoutHistory = [];
-    amb.payoutHistory.unshift({
-      id: 'LIQ-' + Date.now().toString().slice(-6),
-      date: new Date().toLocaleDateString('pt-PT') + ' ' + new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
-      amount: paidAmount,
-      method: method || 'M-Pesa',
-      receipt: ref || 'MP-' + Math.floor(100000 + Math.random() * 900000),
-      status: 'LIQUIDADO'
-    });
-
-    this.saveAmbassador(amb);
-    return amb;
-  }
-
-  // --- SAAS & LOCK ENGINE (TRAVA LRS) ---
-  checkStoreLock(storeId) {
-    const store = storeId ? this.getStores().find(s => s.id === storeId) || this.getCurrentStore() : this.getCurrentStore();
-    if (!store) return { isLocked: false, daysRemaining: 999, reason: '', store: null };
-
-    if (store.acesso_ativo === false) {
-      return {
-        isLocked: true,
-        daysRemaining: 0,
-        reason: store.motivo_bloqueio || 'Acesso suspenso pelo administrador do sistema GEF.',
-        store
-      };
-    }
-
-    if (store.data_fim_teste) {
-      const now = new Date();
-      const expiry = new Date(store.data_fim_teste);
-      const diffMs = expiry.getTime() - now.getTime();
-      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      if (diffDays <= 0) {
-        return {
-          isLocked: true,
-          daysRemaining: diffDays,
-          reason: `O período de teste ou mensalidade da loja expirou em ${new Date(store.data_fim_teste).toLocaleDateString('pt-PT')}. Regularize a sua subscrição para continuar a faturar.`,
-          store
-        };
-      }
-      return {
-        isLocked: false,
-        daysRemaining: diffDays,
-        reason: '',
-        store
-      };
-    }
-
-    return {
-      isLocked: false,
-      daysRemaining: 999,
-      reason: '',
-      store
-    };
-  }
-
-  updateStoreSaas(storeId, updates) {
-    const stores = this.getStores();
-    const idx = stores.findIndex(s => s.id === storeId);
-    if (idx === -1) return undefined;
-    stores[idx] = { ...stores[idx], ...updates };
-    this.set(STORAGE_KEYS.STORES, stores);
-    return stores[idx];
-  }
-
-  toggleStoreAccess(storeId, acessoAtivo, motivo) {
-    return this.updateStoreSaas(storeId, {
-      acesso_ativo: acessoAtivo,
-      motivo_bloqueio: motivo || (acessoAtivo ? undefined : 'Assinatura vencida / Bloqueio administrativo')
-    });
-  }
-
-  renewStoreSubscription(storeId, daysToAdd = 30) {
-    const store = this.getStores().find(s => s.id === storeId);
-    if (!store) return undefined;
-    const currentExpiry = store.data_fim_teste ? new Date(store.data_fim_teste) : new Date();
-    const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
-    baseDate.setDate(baseDate.getDate() + daysToAdd);
-    return this.updateStoreSaas(storeId, {
-      acesso_ativo: true,
-      data_fim_teste: baseDate.toISOString().split('T')[0],
-      motivo_bloqueio: undefined
-    });
-  }
-
-  setStoreExpirationDate(storeId, expiryDateStr) {
-    const isFuture = new Date(expiryDateStr).getTime() > Date.now();
-    return this.updateStoreSaas(storeId, {
-      data_fim_teste: expiryDateStr,
-      acesso_ativo: isFuture,
-      motivo_bloqueio: isFuture ? undefined : 'Assinatura vencida'
-    });
-  }
-
-  unlockWithMasterCode(storeId, code) {
-    const clean = (code || '').trim().toUpperCase();
-    if (clean === 'GEF-SUPERADMIN-2026' || clean === 'GEF-MASTER-UNBLOCK' || clean.startsWith('GEF-30D-') || clean.startsWith('GEF-EMERGENCIA-')) {
-      const renewed = this.renewStoreSubscription(storeId, 30);
-      if (renewed) {
-        return { success: true, message: 'Loja desbloqueada com sucesso via Chave Mestre de Emergência (30 dias adicionados).' };
-      }
-      return { success: false, message: 'Filial não localizada para desbloqueio.' };
-    }
-    return { success: false, message: 'Código de desbloqueio inválido ou expirado.' };
-  }
-
-  // --- DASHBOARD METRICS ---
-  getDashboardStats(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const products = this.getProducts(targetStore);
-    const customers = this.getCustomers(targetStore);
-    const sales = this.getSales(targetStore);
-    const quotes = this.getQuotes(targetStore);
-    const deliveries = this.getDeliveries(targetStore);
-    const losses = this.getLosses(targetStore);
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const firstDayOfMonth = todayStr.slice(0, 7) + '-01';
-
-    const validSales = sales.filter(s => s.status === 'CONCLUIDA' || s.status === 'COMPLETED');
-    const todaySales = validSales.filter(s => (s.createdAt || s.timestamp || '').startsWith(todayStr));
-    const monthSales = validSales.filter(s => (s.createdAt || s.timestamp || '') >= firstDayOfMonth);
-
-    const totalTodaySales = todaySales.reduce((acc, s) => acc + (s.total || s.totalNet || 0), 0);
-    const todaySalesCount = todaySales.length;
-
-    const monthSalesRevenue = monthSales.reduce((acc, s) => acc + (s.total || s.totalNet || 0), 0);
-    const monthCogs = monthSales.reduce((acc, s) => acc + (s.totalCogs || 0), 0);
-    const monthProfit = monthSalesRevenue - monthCogs;
-    const projectedProfitMargin = monthSalesRevenue > 0 ? Number(((monthProfit / monthSalesRevenue) * 100).toFixed(1)) : 0;
-
-    const batches = this.getAllBatches(targetStore);
-    const batchCost = batches.reduce((sum, b) => sum + (b.currentQuantityBase * b.costPerBase), 0);
-    const productCost = products.reduce((sum, p) => sum + (p.currentStockBase * p.costPriceBase), 0);
-    const stockCostTotal = Number((batches.length > 0 ? batchCost : productCost).toFixed(2));
-    const stockSaleValuation = Number(products.reduce((sum, p) => sum + (p.currentStockBase * p.salePriceBase), 0).toFixed(2));
-
-    const activeShift = this.getActiveCashSession(targetStore);
-    const currentCashInDrawer = activeShift ? (activeShift.expectedCash || 0) : 0;
-    const totalRealEquity = Number((stockCostTotal + currentCashInDrawer).toFixed(2));
-
-    const totalReceivable = customers.reduce((sum, c) => sum + (c.currentDebt || 0), 0);
-    const lowStockList = products.filter(p => p.currentStockBase > 0 && p.currentStockBase <= p.minStockAlert);
-    const outOfStockList = products.filter(p => p.currentStockBase <= 0);
-
-    const totalLossCost = losses.reduce((sum, l) => sum + (l.totalLossCost || l.totalCost || 0), 0);
-
-    // Top selling products
-    const pMap = {};
-    validSales.forEach(s => {
-      (s.items || []).forEach(it => {
-        const id = it.productId || it.productName;
-        const name = it.productName || 'Material';
-        const qty = it.quantity || 1;
-        const sub = it.total || it.totalPrice || (qty * (it.unitPrice || 0));
-        if (!pMap[id]) pMap[id] = { name, total: 0, qty: 0 };
-        pMap[id].total += sub;
-        pMap[id].qty += qty;
-      });
-    });
-    const topSellingProducts = Object.values(pMap).sort((a, b) => b.total - a.total).slice(0, 5);
-
-    return {
-      totalTodaySales,
-      todaySalesCount,
-      totalRealEquity,
-      stockCostTotal,
-      stockSaleValuation,
-      currentCashInDrawer,
-      totalReceivable,
-      lowStockCount: lowStockList.length,
-      outOfStockCount: outOfStockList.length,
-      pendingQuotesCount: quotes.filter(q => q.status === 'PENDENTE').length,
-      pendingDeliveriesCount: deliveries.filter(d => d.status !== 'ENTREGUE' && d.status !== 'CANCELADA').length,
-      recentSales: sales.slice(0, 8),
-      topSellingProducts,
-      projectedProfitMargin,
-      totalLossCost
-    };
-  }
-
-  // --- AUDIT LOGS ---
-  getAuditLogs(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.AUDIT_LOGS, []);
-    return list.filter(l => targetStore === 'ALL' || !l.storeId || l.storeId === targetStore);
-  }
-
-  addAuditLog(log) {
-    const list = this.get(STORAGE_KEYS.AUDIT_LOGS, []);
-    list.unshift(log);
-    if (list.length > 500) list.pop();
-    this.set(STORAGE_KEYS.AUDIT_LOGS, list);
-  }
-
-  // --- INVENTORIES & PHYSICAL AUDITING (CONFRONTAÇÃO DE ESTOQUE) ---
-  getInventories(storeId) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const list = this.get(STORAGE_KEYS.INVENTORIES, []);
-    return list.filter(inv => targetStore === 'ALL' || (inv.storeId || 'store-001') === targetStore);
-  }
-
-  saveInventoryAudit({ storeId, operatorName, items, notes, reconcile }) {
-    const targetStore = storeId || this.getCurrentStoreId();
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const randPart = Math.floor(1000 + Math.random() * 9000);
-    const code = `INV-${dateStr}-${randPart}`;
-
-    const products = this.getProducts();
-    let totalItemsAudited = items.length;
-    let totalDivergentItems = 0;
-    let totalDivergenceValue = 0;
-
-    const auditedItems = items.map(item => {
-      const prod = products.find(p => p.id === item.productId);
-      const systemStock = item.systemStock ?? (prod?.currentStockBase || 0);
-      const physicalStock = Number(item.physicalStock ?? systemStock);
-      const diff = Number((physicalStock - systemStock).toFixed(3));
-      const unitCost = prod?.costPriceBase || 0;
-      const diffValue = Number((diff * unitCost).toFixed(2));
-
-      if (diff !== 0) {
-        totalDivergentItems++;
-        totalDivergenceValue += diffValue;
-      }
-
-      // If reconciliation is confirmed, adjust system stocks
-      if (reconcile && prod) {
-        prod.currentStockBase = physicalStock;
-        const loc = item.location || 'LOJA';
-        if (!prod.stockByLocation) {
-          prod.stockByLocation = { LOJA: physicalStock, ARMAZEM: 0, PATIO: 0 };
-        }
-        prod.stockByLocation[loc] = Math.max(0, (prod.stockByLocation[loc] || 0) + diff);
-      }
-
-      return {
-        productId: item.productId,
-        productCode: item.productCode || prod?.code,
-        productName: item.productName || prod?.name,
-        baseUnit: item.baseUnit || prod?.baseUnit || 'UN',
-        location: item.location || 'LOJA',
-        systemStock,
-        physicalStock,
-        divergence: diff,
-        unitCost,
-        diffValue
-      };
-    });
-
-    if (reconcile) {
-      this.set(STORAGE_KEYS.PRODUCTS, products);
-    }
-
-    const inventoryRecord = {
-      id: 'inv-' + Date.now(),
-      code,
-      storeId: targetStore,
-      operatorName: operatorName || 'Auditor',
-      timestamp: now.toISOString(),
-      notes: notes || '',
-      reconciled: !!reconcile,
-      totalItemsAudited,
-      totalDivergentItems,
-      totalDivergenceValue: Number(totalDivergenceValue.toFixed(2)),
-      items: auditedItems
-    };
-
-    const inventories = this.get(STORAGE_KEYS.INVENTORIES, []);
-    inventories.unshift(inventoryRecord);
-    this.set(STORAGE_KEYS.INVENTORIES, inventories);
-
-    // Register in Audit Logs
-    this.addAuditLog({
-      id: 'audit-' + Date.now(),
-      storeId: targetStore,
-      action: reconcile ? 'INVENTARIO_CONCILIADO' : 'INVENTARIO_CONFRONTACAO',
-      entity: 'inventories',
-      entityId: inventoryRecord.id,
-      details: `${reconcile ? 'Ajuste e conciliação de inventário' : 'Confrontação de inventário físico'} [${code}]. ${totalItemsAudited} itens auditados, ${totalDivergentItems} divergentes. Impacto financeiro: ${totalDivergenceValue.toFixed(2)} MT. Responsável: ${operatorName}.`,
-      createdAt: now.toISOString()
-    });
-
-    return inventoryRecord;
-  }
+import * as SupabaseAuth from './supabase.js';
+import i18n from './i18n.js';
+
+/* ============================================================
+   SUPABASE CLIENT
+   ============================================================ */
+
+const getClient = () =>
+    SupabaseAuth.supabase ||
+    SupabaseAuth.supabaseClient ||
+    SupabaseAuth.client ||
+    (
+        typeof SupabaseAuth.getSupabaseClient === 'function'
+            ? SupabaseAuth.getSupabaseClient()
+            : null
+    ) ||
+    (
+        typeof SupabaseAuth.getClient === 'function'
+            ? SupabaseAuth.getClient()
+            : null
+    );
+
+const ROLE = Object.freeze({
+    SUPERADMIN: 'SUPERADMIN',
+    ADMIN: 'ADMIN',
+    MANAGER: 'MANAGER',
+    CASHIER: 'CASHIER',
+    STOCK: 'STOCK',
+    ACCOUNTANT: 'ACCOUNTANT'
+});
+
+const ALL_STORES = 'ALL';
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+const nowIso = () => new Date().toISOString();
+
+function clean(value) {
+    return value === undefined ? null : value;
 }
 
-export const db = new GefDatabase();
+function unwrap(result, operation = 'Operação Supabase') {
+    if (!result) {
+        throw new Error(`${operation}: resposta vazia.`);
+    }
+
+    if (result.error) {
+        throw result.error;
+    }
+
+    return result.data;
+}
+
+function normalizeRole(role) {
+    return String(role || '').trim().toUpperCase();
+}
+
+/* ============================================================
+   MAPPERS
+   Mantêm compatibilidade com nomes usados pelo frontend.
+   ============================================================ */
+
+function mapStore(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.id,
+
+        tradeName:
+            row.trade_name ??
+            row.tradeName,
+
+        nuitNif:
+            row.nuit_nif ??
+            row.nuitNif,
+
+        isHeadquarters:
+            row.is_headquarters ??
+            row.isHeadquarters,
+
+        valorMensalidade:
+            row.valor_mensalidade ??
+            row.valorMensalidade,
+
+        dataInicioTeste:
+            row.data_inicio_teste ??
+            row.dataInicioTeste,
+
+        dataFimTeste:
+            row.data_fim_teste ??
+            row.dataFimTeste,
+
+        acessoAtivo:
+            row.acesso_ativo ??
+            row.acessoAtivo,
+
+        motivoBloqueio:
+            row.motivo_bloqueio ??
+            row.motivoBloqueio
+    };
+}
+
+function mapProfile(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.store_id,
+
+        fullName: row.full_name,
+
+        active: row.active !== false
+    };
+}
+
+function mapProduct(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.store_id,
+
+        costPrice:
+            Number(row.cost_price ?? 0),
+
+        salePrice:
+            Number(row.sale_price ?? 0),
+
+        wholesalePrice:
+            Number(row.wholesale_price ?? 0),
+
+        minStock:
+            Number(row.min_stock ?? 0),
+
+        minStockAlert:
+            Number(row.min_stock ?? 0),
+
+        currentStock:
+            Number(row.current_stock ?? 0),
+
+        stockLoja:
+            Number(row.stock_loja ?? 0),
+
+        stockArmazem:
+            Number(row.stock_armazem ?? 0),
+
+        stockPatio:
+            Number(row.stock_patio ?? 0),
+
+        isFractional:
+            !!row.is_fractional,
+
+        stockByLocation: {
+            loja: Number(row.stock_loja ?? 0),
+            armazem: Number(row.stock_armazem ?? 0),
+            patio: Number(row.stock_patio ?? 0)
+        },
+
+        active:
+            row.active !== false
+    };
+}
+
+function mapCustomer(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.store_id,
+
+        currentDebt:
+            Number(row.current_debt ?? 0),
+
+        creditLimit:
+            Number(row.credit_limit ?? 0),
+
+        subscriptionFee:
+            Number(row.subscription_fee ?? 0),
+
+        subscriptionEndDate:
+            row.subscription_end_date
+    };
+}
+
+function mapSupplier(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+        storeId: row.store_id
+    };
+}
+
+function mapCashSession(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.store_id,
+
+        operatorId:
+            row.operator_id,
+
+        openingBalance:
+            Number(row.opening_balance ?? 0),
+
+        declaredCash:
+            row.declared_cash == null
+                ? null
+                : Number(row.declared_cash),
+
+        expectedCash:
+            row.expected_cash == null
+                ? null
+                : Number(row.expected_cash),
+
+        difference:
+            row.difference == null
+                ? null
+                : Number(row.difference),
+
+        isClosed:
+            !!row.is_closed
+    };
+}
+
+function mapSale(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId: row.store_id,
+
+        customerId:
+            row.customer_id,
+
+        operatorId:
+            row.operator_id,
+
+        totalGross:
+            Number(row.total_gross ?? 0),
+
+        discount:
+            Number(row.discount ?? 0),
+
+        totalNet:
+            Number(row.total_net ?? 0)
+    };
+}
+
+function mapPurchase(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        storeId:
+            row.store_id,
+
+        supplierId:
+            row.supplier_id,
+
+        total:
+            Number(row.total ?? row.total_net ?? 0)
+    };
+}
+
+function mapAmbassador(row) {
+    if (!row) return null;
+
+    return {
+        ...row,
+
+        userId:
+            row.user_id,
+
+        referralCode:
+            row.referral_code,
+
+        commissionRate:
+            Number(row.commission_rate ?? 0),
+
+        totalEarned:
+            Number(row.total_earned ?? 0)
+    };
+}
+
+/* ============================================================
+   DATABASE
+   ============================================================ */
+
+class GefDatabase {
+
+    constructor() {
+        this.initialized = false;
+        this._authUser = null;
+        this._profile = null;
+
+        /*
+         * Isto é apenas preferência da interface.
+         * NÃO é cache de dados.
+         */
+        this._currentStoreId = null;
+    }
+
+    /* ========================================================
+       INITIALIZAÇÃO
+       ======================================================== */
+
+    async init() {
+
+        const supabase = getClient();
+
+        if (!supabase) {
+            throw new Error(
+                'Supabase não está disponível. Verifique o export do cliente em supabase.js.'
+            );
+        }
+
+        const {
+            data: { user } = {},
+            error
+        } = await supabase.auth.getUser();
+
+        if (error) {
+            throw error;
+        }
+
+        this._authUser = user || null;
+
+        if (user) {
+
+            const {
+                data: profile,
+                error: profileError
+            } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            if (profileError) {
+                throw profileError;
+            }
+
+            this._profile = mapProfile(profile);
+
+            if (!this._profile) {
+                throw new Error(
+                    'Perfil do utilizador não encontrado.'
+                );
+            }
+
+            if (this._profile.active === false) {
+                throw new Error(
+                    'Utilizador inativo.'
+                );
+            }
+
+            const role = normalizeRole(
+                this._profile.role
+            );
+
+            /*
+             * REGRA CRÍTICA:
+             * SUPERADMIN NÃO TEM LOJA.
+             */
+            if (role === ROLE.SUPERADMIN) {
+
+                if (this._profile.storeId !== null) {
+
+                    throw new Error(
+                        'Configuração inválida: SUPERADMIN deve ter store_id = NULL.'
+                    );
+                }
+
+            } else {
+
+                if (!this._profile.storeId) {
+
+                    throw new Error(
+                        'Utilizador normal sem loja associada.'
+                    );
+                }
+            }
+        }
+
+        this.initialized = true;
+
+        return this;
+    }
+
+    async _ensureContext() {
+
+        if (!this.initialized) {
+            await this.init();
+        }
+
+        return {
+            supabase: getClient(),
+            user: this._authUser,
+            profile: this._profile
+        };
+    }
+
+    async refreshAuthContext() {
+
+        this.initialized = false;
+        this._authUser = null;
+        this._profile = null;
+
+        return this.init();
+    }
+
+    /* ========================================================
+       UTILIZADOR
+       ======================================================== */
+
+    isSuperAdmin() {
+
+        return (
+            normalizeRole(this._profile?.role) ===
+            ROLE.SUPERADMIN
+        );
+    }
+
+    getCurrentUser() {
+
+        if (!this._profile) {
+            return null;
+        }
+
+        return {
+            ...this._profile,
+
+            id:
+                this._profile.id,
+
+            email:
+                this._profile.email,
+
+            fullName:
+                this._profile.fullName,
+
+            role:
+                normalizeRole(this._profile.role),
+
+            storeId:
+                this._profile.storeId ?? null,
+
+            supabaseAuth:
+                true,
+
+            active:
+                this._profile.active !== false
+        };
+    }
+
+    /* ========================================================
+       LOJA ATUAL
+       ======================================================== */
+
+    getCurrentStoreId() {
+
+        /*
+         * SUPERADMIN pode trabalhar com todas as lojas.
+         */
+        if (this.isSuperAdmin()) {
+
+            return (
+                this._currentStoreId ||
+                ALL_STORES
+            );
+        }
+
+        /*
+         * Utilizador normal NÃO escolhe outra loja.
+         */
+        return this._profile?.storeId || null;
+    }
+
+    setCurrentStoreId(storeId) {
+
+        if (!this.isSuperAdmin()) {
+
+            if (
+                storeId !==
+                this._profile?.storeId
+            ) {
+                throw new Error(
+                    'Este utilizador não pode mudar de loja.'
+                );
+            }
+        }
+
+        this._currentStoreId =
+            storeId || ALL_STORES;
+
+        return this._currentStoreId;
+    }
+
+    async _assertStoreAccess(storeId) {
+
+        const { profile } =
+            await this._ensureContext();
+
+        if (!storeId) {
+            throw new Error(
+                'store_id é obrigatório.'
+            );
+        }
+
+        if (
+            normalizeRole(profile?.role) ===
+            ROLE.SUPERADMIN
+        ) {
+            return true;
+        }
+
+        const ownStore =
+            profile?.store_id ??
+            profile?.storeId;
+
+        if (ownStore !== storeId) {
+
+            throw new Error(
+                'Acesso negado à loja selecionada.'
+            );
+        }
+
+        return true;
+    }
+
+    /* ========================================================
+       GENERIC HELPERS
+       ======================================================== */
+
+    async _single(
+        table,
+        id,
+        columns = '*'
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        const {
+            data,
+            error
+        } = await supabase
+            .from(table)
+            .select(columns)
+            .eq('id', id)
+            .maybeSingle();
+
+        return unwrap(
+            { data, error },
+            `Leitura de ${table}`
+        );
+    }
+
+    async _upsert(
+        table,
+        payload,
+        options = {}
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        const {
+            data,
+            error
+        } = await supabase
+            .from(table)
+            .upsert(payload, options)
+            .select()
+            .maybeSingle();
+
+        return unwrap(
+            { data, error },
+            `Gravação de ${table}`
+        );
+    }
+
+    async _delete(table, id) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        const { error } =
+            await supabase
+                .from(table)
+                .delete()
+                .eq('id', id);
+
+        if (error) {
+            throw error;
+        }
+
+        return true;
+    }
+
+    /* ========================================================
+       STORES
+       ======================================================== */
+
+    async getStores() {
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('stores')
+            .select('*')
+            .order('name');
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de lojas'
+            ) || []
+        ).map(mapStore);
+    }
+
+    async getCurrentStore() {
+
+        const id =
+            this.getCurrentStoreId();
+
+        if (id === ALL_STORES) {
+            return null;
+        }
+
+        const row =
+            await this._single(
+                'stores',
+                id
+            );
+
+        return mapStore(row);
+    }
+
+    async saveStore(store) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode gerir lojas.'
+            );
+        }
+
+        const payload = {
+
+            id:
+                store.id ??
+                store.storeId,
+
+            code:
+                store.code ?? null,
+
+            name:
+                store.name,
+
+            trade_name:
+                store.trade_name ??
+                store.tradeName ??
+                null,
+
+            nuit_nif:
+                store.nuit_nif ??
+                store.nuitNif ??
+                null,
+
+            city:
+                store.city ??
+                'Maputo',
+
+            province:
+                store.province ??
+                null,
+
+            address:
+                store.address ??
+                null,
+
+            phone:
+                store.phone ??
+                null,
+
+            email:
+                store.email ??
+                null,
+
+            currency:
+                store.currency ??
+                'MT',
+
+            language:
+                store.language ??
+                'pt',
+
+            is_headquarters:
+                store.is_headquarters ??
+                store.isHeadquarters ??
+                false,
+
+            valor_mensalidade:
+                clean(
+                    store.valor_mensalidade ??
+                    store.valorMensalidade
+                ),
+
+            data_inicio_teste:
+                clean(
+                    store.data_inicio_teste ??
+                    store.dataInicioTeste
+                ),
+
+            data_fim_teste:
+                clean(
+                    store.data_fim_teste ??
+                    store.dataFimTeste
+                ),
+
+            acesso_ativo:
+                store.acesso_ativo ??
+                store.acessoAtivo ??
+                true,
+
+            motivo_bloqueio:
+                store.motivo_bloqueio ??
+                store.motivoBloqueio ??
+                null
+        };
+
+        return mapStore(
+            await this._upsert(
+                'stores',
+                payload
+            )
+        );
+    }
+
+    async deleteStore(storeId) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode eliminar lojas.'
+            );
+        }
+
+        return this._delete(
+            'stores',
+            storeId
+        );
+    }
+
+    async getConfig() {
+
+        const store =
+            await this.getCurrentStore();
+
+        return store || {};
+    }
+
+    async saveConfig(config) {
+
+        const current =
+            await this.getCurrentStore();
+
+        return this.saveStore({
+            ...(current || {}),
+            ...config
+        });
+    }
+
+    /* ========================================================
+       UNITS
+       ======================================================== */
+
+    async getUnits() {
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('units')
+            .select('*')
+            .order('name');
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de unidades'
+            ) || []
+        );
+    }
+
+    /* ========================================================
+       PRODUCTS
+       ======================================================== */
+
+    async getProducts(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('products')
+                .select('*')
+                .order('name');
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+
+        } else if (
+            !this.isSuperAdmin()
+        ) {
+
+            query =
+                query.eq(
+                    'store_id',
+                    this._profile.storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de produtos'
+            ) || []
+        ).map(mapProduct);
+    }
+
+    async getProductById(productId) {
+
+        return mapProduct(
+            await this._single(
+                'products',
+                productId
+            )
+        );
+    }
+
+    async saveProduct(product) {
+
+        const storeId =
+            product.store_id ??
+            product.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            storeId === ALL_STORES ||
+            !storeId
+        ) {
+            throw new Error(
+                'Produto requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const stock =
+            product.stockByLocation || {};
+
+        const payload = {
+
+            id:
+                product.id,
+
+            store_id:
+                storeId,
+
+            code:
+                product.code ??
+                null,
+
+            barcode:
+                product.barcode ??
+                null,
+
+            name:
+                product.name,
+
+            category:
+                product.category ??
+                null,
+
+            unit:
+                product.unit ??
+                null,
+
+            cost_price:
+                Number(
+                    product.cost_price ??
+                    product.costPrice ??
+                    0
+                ),
+
+            sale_price:
+                Number(
+                    product.sale_price ??
+                    product.salePrice ??
+                    0
+                ),
+
+            wholesale_price:
+                Number(
+                    product.wholesale_price ??
+                    product.wholesalePrice ??
+                    0
+                ),
+
+            min_stock:
+                Number(
+                    product.min_stock ??
+                    product.minStock ??
+                    product.minStockAlert ??
+                    0
+                ),
+
+            current_stock:
+                Number(
+                    product.current_stock ??
+                    product.currentStock ??
+                    (
+                        Number(
+                            stock.loja ??
+                            product.stockLoja ??
+                            0
+                        ) +
+                        Number(
+                            stock.armazem ??
+                            product.stockArmazem ??
+                            0
+                        ) +
+                        Number(
+                            stock.patio ??
+                            product.stockPatio ??
+                            0
+                        )
+                    )
+                ),
+
+            stock_loja:
+                Number(
+                    product.stock_loja ??
+                    product.stockLoja ??
+                    stock.loja ??
+                    0
+                ),
+
+            stock_armazem:
+                Number(
+                    product.stock_armazem ??
+                    product.stockArmazem ??
+                    stock.armazem ??
+                    0
+                ),
+
+            stock_patio:
+                Number(
+                    product.stock_patio ??
+                    product.stockPatio ??
+                    stock.patio ??
+                    0
+                ),
+
+            is_fractional:
+                !!(
+                    product.is_fractional ??
+                    product.isFractional
+                ),
+
+            active:
+                product.active !== false
+        };
+
+        return mapProduct(
+            await this._upsert(
+                'products',
+                payload
+            )
+        );
+    }
+
+    async deleteProduct(productId) {
+
+        return this._delete(
+            'products',
+            productId
+        );
+    }
+
+    async getAllBatches(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('batches')
+                .select('*');
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query.order(
+            'expiry_date',
+            {
+                ascending: true,
+                nullsFirst: false
+            }
+        );
+
+        return unwrap(
+            { data, error },
+            'Leitura de lotes'
+        ) || [];
+    }
+
+    /* ========================================================
+       CUSTOMERS
+       ======================================================== */
+
+    async getCustomers(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('customers')
+                .select('*')
+                .order('name');
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de clientes'
+            ) || []
+        ).map(mapCustomer);
+    }
+
+    async saveCustomer(customer) {
+
+        const storeId =
+            customer.store_id ??
+            customer.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Cliente requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const payload = {
+
+            id:
+                customer.id,
+
+            store_id:
+                storeId,
+
+            name:
+                customer.name,
+
+            document:
+                customer.document ??
+                customer.taxId ??
+                null,
+
+            phone:
+                customer.phone ??
+                null,
+
+            email:
+                customer.email ??
+                null,
+
+            address:
+                customer.address ??
+                null,
+
+            credit_limit:
+                Number(
+                    customer.credit_limit ??
+                    customer.creditLimit ??
+                    0
+                ),
+
+            current_debt:
+                Number(
+                    customer.current_debt ??
+                    customer.currentDebt ??
+                    0
+                ),
+
+            subscription_fee:
+                Number(
+                    customer.subscription_fee ??
+                    customer.subscriptionFee ??
+                    0
+                ),
+
+            subscription_end_date:
+                customer.subscription_end_date ??
+                customer.subscriptionEndDate ??
+                null
+        };
+
+        return mapCustomer(
+            await this._upsert(
+                'customers',
+                payload
+            )
+        );
+    }
+
+    async deleteCustomer(customerId) {
+
+        return this._delete(
+            'customers',
+            customerId
+        );
+    }
+
+    /* ========================================================
+       SUPPLIERS
+       ======================================================== */
+
+    async getSuppliers(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('suppliers')
+                .select('*')
+                .order('name');
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de fornecedores'
+            ) || []
+        ).map(mapSupplier);
+    }
+
+    async saveSupplier(supplier) {
+
+        const storeId =
+            supplier.store_id ??
+            supplier.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Fornecedor requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        return mapSupplier(
+            await this._upsert(
+                'suppliers',
+                {
+                    id:
+                        supplier.id,
+
+                    store_id:
+                        storeId,
+
+                    name:
+                        supplier.name,
+
+                    document:
+                        supplier.document ??
+                        supplier.taxId ??
+                        null,
+
+                    phone:
+                        supplier.phone ??
+                        null,
+
+                    email:
+                        supplier.email ??
+                        null,
+
+                    address:
+                        supplier.address ??
+                        null,
+
+                    active:
+                        supplier.active !== false
+                }
+            )
+        );
+    }
+
+    async deleteSupplier(supplierId) {
+
+        return this._delete(
+            'suppliers',
+            supplierId
+        );
+    }
+
+    /* ========================================================
+       CASH
+       ======================================================== */
+
+    async getCashSessions(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('cash_sessions')
+                .select('*')
+                .order(
+                    'opened_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de sessões de caixa'
+            ) || []
+        ).map(mapCashSession);
+    }
+
+    async getActiveCashSession(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const sessions =
+            await this.getCashSessions(
+                storeId
+            );
+
+        return (
+            sessions.find(
+                session =>
+                    !session.isClosed
+            ) || null
+        );
+    }
+
+    async openCashSession({
+        storeId = this.getCurrentStoreId(),
+        openingBalance = 0,
+        notes = null
+    } = {}) {
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Selecione uma loja para abrir o caixa.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const existing =
+            await this.getActiveCashSession(
+                storeId
+            );
+
+        if (existing) {
+            throw new Error(
+                'Já existe um caixa aberto nesta loja.'
+            );
+        }
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('cash_sessions')
+            .insert({
+                id:
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId,
+
+                operator_id:
+                    this._authUser?.id ??
+                    null,
+
+                opened_at:
+                    nowIso(),
+
+                opening_balance:
+                    Number(
+                        openingBalance || 0
+                    ),
+
+                is_closed:
+                    false,
+
+                notes
+            })
+            .select()
+            .single();
+
+        return mapCashSession(
+            unwrap(
+                { data, error },
+                'Abertura de caixa'
+            )
+        );
+    }
+
+    async closeCashSession(
+        sessionId,
+        declaredCash,
+        notes = null
+    ) {
+
+        const session =
+            await this._single(
+                'cash_sessions',
+                sessionId
+            );
+
+        if (!session) {
+            throw new Error(
+                'Sessão de caixa não encontrada.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            session.store_id
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('cash_sessions')
+            .update({
+                closed_at:
+                    nowIso(),
+
+                declared_cash:
+                    Number(
+                        declaredCash || 0
+                    ),
+
+                is_closed:
+                    true,
+
+                notes
+            })
+            .eq(
+                'id',
+                sessionId
+            )
+            .select()
+            .single();
+
+        return mapCashSession(
+            unwrap(
+                { data, error },
+                'Fecho de caixa'
+            )
+        );
+    }
+
+    async registerSangria(
+        sessionId,
+        amount,
+        reason,
+        notes = null
+    ) {
+
+        const session =
+            await this._single(
+                'cash_sessions',
+                sessionId
+            );
+
+        if (!session) {
+            throw new Error(
+                'Sessão de caixa não encontrada.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            session.store_id
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('cash_movements')
+            .insert({
+                id:
+                    crypto.randomUUID(),
+
+                session_id:
+                    sessionId,
+
+                type:
+                    'SANGRIA',
+
+                amount:
+                    Number(amount || 0),
+
+                reason:
+                    reason ?? null,
+
+                notes,
+
+                operator_id:
+                    this._authUser?.id ??
+                    null,
+
+                created_at:
+                    nowIso()
+            })
+            .select()
+            .single();
+
+        return unwrap(
+            { data, error },
+            'Registo de sangria'
+        );
+    }
+
+    async getCashMovements(
+        sessionId
+    ) {
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('cash_movements')
+            .select('*')
+            .eq(
+                'session_id',
+                sessionId
+            )
+            .order(
+                'created_at',
+                {
+                    ascending: false
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Leitura de movimentos de caixa'
+        ) || [];
+    }
+
+    async addCashMovement(
+        movement
+    ) {
+
+        const sessionId =
+            movement.session_id ??
+            movement.sessionId;
+
+        const session =
+            await this._single(
+                'cash_sessions',
+                sessionId
+            );
+
+        if (!session) {
+            throw new Error(
+                'Sessão de caixa não encontrada.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            session.store_id
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('cash_movements')
+            .insert({
+                id:
+                    movement.id ??
+                    crypto.randomUUID(),
+
+                session_id:
+                    sessionId,
+
+                type:
+                    movement.type,
+
+                amount:
+                    Number(
+                        movement.amount || 0
+                    ),
+
+                reason:
+                    movement.reason ??
+                    null,
+
+                notes:
+                    movement.notes ??
+                    null,
+
+                operator_id:
+                    movement.operator_id ??
+                    movement.operatorId ??
+                    this._authUser?.id ??
+                    null,
+
+                created_at:
+                    movement.created_at ??
+                    nowIso()
+            })
+            .select()
+            .single();
+
+        return unwrap(
+            { data, error },
+            'Movimento de caixa'
+        );
+    }
+
+    /* ========================================================
+       SALES
+       ======================================================== */
+
+    async getSales(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('sales')
+                .select(
+                    '*, sale_items(*)'
+                )
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de vendas'
+            ) || []
+        ).map(row => ({
+            ...mapSale(row),
+            items:
+                row.sale_items || []
+        }));
+    }
+
+    async processAtomicSale(
+        saleData
+    ) {
+
+        const storeId =
+            saleData.store_id ??
+            saleData.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Venda requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const items =
+            (saleData.items || [])
+                .map(item => ({
+                    product_id:
+                        item.product_id ??
+                        item.productId,
+
+                    quantity:
+                        Number(
+                            item.quantity || 0
+                        ),
+
+                    unit_price:
+                        Number(
+                            item.unit_price ??
+                            item.unitPrice ??
+                            0
+                        ),
+
+                    location:
+                        item.location ??
+                        'loja'
+                }));
+
+        if (!items.length) {
+            throw new Error(
+                'A venda não possui produtos.'
+            );
+        }
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .rpc(
+                'process_atomic_sale',
+                {
+                    p_store_id:
+                        storeId,
+
+                    p_operator_id:
+                        this._authUser?.id ??
+                        null,
+
+                    p_customer_id:
+                        saleData.customer_id ??
+                        saleData.customerId ??
+                        null,
+
+                    p_items:
+                        items,
+
+                    p_payment_method:
+                        saleData.payment_method ??
+                        saleData.paymentMethod ??
+                        'CASH',
+
+                    p_discount:
+                        Number(
+                            saleData.discount || 0
+                        ),
+
+                    p_extra_info:
+                        saleData.extra_info ??
+                        saleData.extraInfo ??
+                        null
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Processamento atómico da venda'
+        );
+    }
+
+    async processSale(
+        saleData
+    ) {
+
+        const result =
+            await this.processAtomicSale(
+                saleData
+            );
+
+        return (
+            result?.sale ??
+            result
+        );
+    }
+
+    async reverseSale(
+        saleId,
+        reason = null
+    ) {
+
+        const sale =
+            await this._single(
+                'sales',
+                saleId
+            );
+
+        if (!sale) {
+            throw new Error(
+                'Venda não encontrada.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            sale.store_id
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .rpc(
+                'reverse_sale',
+                {
+                    p_sale_id:
+                        saleId,
+
+                    p_reason:
+                        reason,
+
+                    p_operator_id:
+                        this._authUser?.id ??
+                        null
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Estorno da venda'
+        );
+    }
+
+    async revertSale(
+        saleId,
+        reason = null
+    ) {
+
+        return this.reverseSale(
+            saleId,
+            reason
+        );
+    }
+
+    /* ========================================================
+       PURCHASES
+       ======================================================== */
+
+    async getPurchases(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('purchases')
+                .select(
+                    '*, purchase_items(*)'
+                )
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de compras'
+            ) || []
+        ).map(row => ({
+            ...mapPurchase(row),
+            items:
+                row.purchase_items || []
+        }));
+    }
+
+    async savePurchase(
+        purchase
+    ) {
+
+        const storeId =
+            purchase.store_id ??
+            purchase.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Compra requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const purchaseId =
+            purchase.id ??
+            crypto.randomUUID();
+
+        const payload = {
+
+            id:
+                purchaseId,
+
+            store_id:
+                storeId,
+
+            supplier_id:
+                purchase.supplier_id ??
+                purchase.supplierId ??
+                null,
+
+            invoice_number:
+                purchase.invoice_number ??
+                purchase.invoiceNumber ??
+                null,
+
+            total:
+                Number(
+                    purchase.total ??
+                    purchase.totalNet ??
+                    0
+                ),
+
+            status:
+                purchase.status ??
+                'COMPLETED',
+
+            notes:
+                purchase.notes ??
+                null,
+
+            created_at:
+                purchase.created_at ??
+                nowIso()
+        };
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('purchases')
+            .upsert(payload)
+            .select()
+            .single();
+
+        const saved =
+            unwrap(
+                { data, error },
+                'Gravação da compra'
+            );
+
+        if (
+            Array.isArray(
+                purchase.items
+            ) &&
+            purchase.items.length
+        ) {
+
+            const rows =
+                purchase.items.map(
+                    item => ({
+                        id:
+                            item.id ??
+                            crypto.randomUUID(),
+
+                        purchase_id:
+                            purchaseId,
+
+                        product_id:
+                            item.product_id ??
+                            item.productId,
+
+                        quantity:
+                            Number(
+                                item.quantity || 0
+                            ),
+
+                        unit_cost:
+                            Number(
+                                item.unit_cost ??
+                                item.unitCost ??
+                                item.costPrice ??
+                                0
+                            ),
+
+                        total_cost:
+                            Number(
+                                item.total_cost ??
+                                item.totalCost ??
+                                0
+                            ),
+
+                        batch_id:
+                            item.batch_id ??
+                            item.batchId ??
+                            null
+                    })
+                );
+
+            const {
+                error: itemError
+            } = await getClient()
+                .from('purchase_items')
+                .upsert(rows);
+
+            if (itemError) {
+                throw itemError;
+            }
+        }
+
+        return mapPurchase(saved);
+    }
+
+    /* ========================================================
+       LOSSES
+       ======================================================== */
+
+    async getLosses(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('losses')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de perdas'
+        ) || [];
+    }
+
+    async registerLoss(
+        loss
+    ) {
+
+        const storeId =
+            loss.store_id ??
+            loss.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Perda requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('losses')
+            .insert({
+                id:
+                    loss.id ??
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId,
+
+                product_id:
+                    loss.product_id ??
+                    loss.productId,
+
+                quantity:
+                    Number(
+                        loss.quantity || 0
+                    ),
+
+                reason:
+                    loss.reason ??
+                    null,
+
+                location:
+                    loss.location ??
+                    'loja',
+
+                operator_id:
+                    this._authUser?.id ??
+                    null,
+
+                notes:
+                    loss.notes ??
+                    null,
+
+                created_at:
+                    loss.created_at ??
+                    nowIso()
+            })
+            .select()
+            .single();
+
+        return unwrap(
+            { data, error },
+            'Registo de perda'
+        );
+    }
+
+    /* ========================================================
+       QUOTES
+       ======================================================== */
+
+    async getQuotes(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('quotes')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de orçamentos'
+        ) || [];
+    }
+
+    async saveQuote(
+        quote
+    ) {
+
+        const storeId =
+            quote.store_id ??
+            quote.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Orçamento requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        return this._upsert(
+            'quotes',
+            {
+                ...quote,
+
+                id:
+                    quote.id ??
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId
+            }
+        );
+    }
+
+    async deleteQuote(id) {
+
+        return this._delete(
+            'quotes',
+            id
+        );
+    }
+
+    /* ========================================================
+       DELIVERIES
+       ======================================================== */
+
+    async getDeliveries(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('deliveries')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de entregas'
+        ) || [];
+    }
+
+    async saveDelivery(
+        delivery
+    ) {
+
+        const storeId =
+            delivery.store_id ??
+            delivery.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Entrega requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        return this._upsert(
+            'deliveries',
+            {
+                ...delivery,
+
+                id:
+                    delivery.id ??
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId
+            }
+        );
+    }
+
+    async deleteDelivery(id) {
+
+        return this._delete(
+            'deliveries',
+            id
+        );
+    }
+
+    /* ========================================================
+       TRANSFERS
+       ======================================================== */
+
+    async getTransfers(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('transfers')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.or(
+                    `from_store_id.eq.${storeId},to_store_id.eq.${storeId}`
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de transferências'
+        ) || [];
+    }
+
+    async saveTransfer(
+        transfer
+    ) {
+
+        const fromStore =
+            transfer.from_store_id ??
+            transfer.fromStoreId;
+
+        const toStore =
+            transfer.to_store_id ??
+            transfer.toStoreId;
+
+        await this._assertStoreAccess(
+            fromStore
+        );
+
+        await this._assertStoreAccess(
+            toStore
+        );
+
+        return this._upsert(
+            'transfers',
+            {
+                ...transfer,
+
+                id:
+                    transfer.id ??
+                    crypto.randomUUID(),
+
+                from_store_id:
+                    fromStore,
+
+                to_store_id:
+                    toStore
+            }
+        );
+    }
+
+    async transferStock({
+        fromStoreId,
+        toStoreId,
+        productId,
+        quantity,
+        location = 'loja',
+        notes = null
+    }) {
+
+        await this._assertStoreAccess(
+            fromStoreId
+        );
+
+        await this._assertStoreAccess(
+            toStoreId
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .rpc(
+                'transfer_stock',
+                {
+                    p_from_store_id:
+                        fromStoreId,
+
+                    p_to_store_id:
+                        toStoreId,
+
+                    p_product_id:
+                        productId,
+
+                    p_quantity:
+                        Number(quantity),
+
+                    p_location:
+                        location,
+
+                    p_operator_id:
+                        this._authUser?.id ??
+                        null,
+
+                    p_notes:
+                        notes
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Transferência de stock'
+        );
+    }
+
+    /* ========================================================
+       CUSTOMER CREDIT
+       ======================================================== */
+
+    async getCustomerCreditHistory(
+        customerId
+    ) {
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('credit_txs')
+            .select('*')
+            .eq(
+                'customer_id',
+                customerId
+            )
+            .order(
+                'created_at',
+                {
+                    ascending: false
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Histórico de crédito'
+        ) || [];
+    }
+
+    async registerCustomerPayment({
+        customerId,
+        amount,
+        paymentMethod = 'CASH',
+        notes = null
+    }) {
+
+        const customer =
+            await this._single(
+                'customers',
+                customerId
+            );
+
+        if (!customer) {
+            throw new Error(
+                'Cliente não encontrado.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            customer.store_id
+        );
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .rpc(
+                'register_customer_payment',
+                {
+                    p_customer_id:
+                        customerId,
+
+                    p_amount:
+                        Number(amount),
+
+                    p_payment_method:
+                        paymentMethod,
+
+                    p_operator_id:
+                        this._authUser?.id ??
+                        null,
+
+                    p_notes:
+                        notes
+                }
+            );
+
+        return unwrap(
+            { data, error },
+            'Pagamento de cliente'
+        );
+    }
+
+    /* ========================================================
+       AMBASSADORS
+       ======================================================== */
+
+    async getAmbassadors() {
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('ambassadors')
+            .select('*')
+            .order('name');
+
+        return (
+            unwrap(
+                { data, error },
+                'Leitura de embaixadores'
+            ) || []
+        ).map(mapAmbassador);
+    }
+
+    async saveAmbassador(
+        ambassador
+    ) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode gerir embaixadores.'
+            );
+        }
+
+        return mapAmbassador(
+            await this._upsert(
+                'ambassadors',
+                {
+                    id:
+                        ambassador.id ??
+                        crypto.randomUUID(),
+
+                    user_id:
+                        ambassador.user_id ??
+                        ambassador.userId ??
+                        null,
+
+                    name:
+                        ambassador.name,
+
+                    phone:
+                        ambassador.phone ??
+                        null,
+
+                    pix_mpesa:
+                        ambassador.pix_mpesa ??
+                        ambassador.pixMpesa ??
+                        null,
+
+                    referral_code:
+                        ambassador.referral_code ??
+                        ambassador.referralCode ??
+                        null,
+
+                    commission_rate:
+                        Number(
+                            ambassador.commission_rate ??
+                            ambassador.commissionRate ??
+                            10
+                        ),
+
+                    total_earned:
+                        Number(
+                            ambassador.total_earned ??
+                            ambassador.totalEarned ??
+                            0
+                        ),
+
+                    active:
+                        ambassador.active !== false
+                }
+            )
+        );
+    }
+
+    async addAmbassadorReferredStore(
+        ambassadorStore
+    ) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode gerir referências.'
+            );
+        }
+
+        return this._upsert(
+            'ambassador_stores',
+            {
+                id:
+                    ambassadorStore.id ??
+                    crypto.randomUUID(),
+
+                ambassador_id:
+                    ambassadorStore.ambassador_id ??
+                    ambassadorStore.ambassadorId,
+
+                store_id:
+                    ambassadorStore.store_id ??
+                    ambassadorStore.storeId,
+
+                referral_code:
+                    ambassadorStore.referral_code ??
+                    ambassadorStore.referralCode ??
+                    null,
+
+                created_at:
+                    ambassadorStore.created_at ??
+                    nowIso()
+            }
+        );
+    }
+
+    async payAmbassadorCommission(
+        ambassadorId,
+        amount = null,
+        notes = null
+    ) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode pagar comissões.'
+            );
+        }
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('ambassador_payouts')
+            .insert({
+                id:
+                    crypto.randomUUID(),
+
+                ambassador_id:
+                    ambassadorId,
+
+                amount:
+                    amount == null
+                        ? 0
+                        : Number(amount),
+
+                notes,
+
+                paid_at:
+                    nowIso(),
+
+                paid_by:
+                    this._authUser?.id ??
+                    null
+            })
+            .select()
+            .single();
+
+        return unwrap(
+            { data, error },
+            'Pagamento de comissão'
+        );
+    }
+
+    /* ========================================================
+       SAAS
+       ======================================================== */
+
+    async checkStoreLock(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            return {
+                locked: false
+            };
+        }
+
+        const store =
+            mapStore(
+                await this._single(
+                    'stores',
+                    storeId
+                )
+            );
+
+        if (!store) {
+
+            return {
+                locked: true,
+                reason: 'STORE_NOT_FOUND'
+            };
+        }
+
+        if (
+            store.acessoAtivo === false
+        ) {
+
+            return {
+                locked: true,
+
+                reason:
+                    store.motivoBloqueio ||
+                    'STORE_BLOCKED',
+
+                store
+            };
+        }
+
+        const end =
+            store.dataFimTeste;
+
+        if (
+            end &&
+            new Date(end).getTime() <
+            Date.now()
+        ) {
+
+            return {
+                locked: true,
+
+                reason:
+                    'SUBSCRIPTION_EXPIRED',
+
+                store
+            };
+        }
+
+        return {
+            locked: false,
+            store
+        };
+    }
+
+    async updateStoreSaas(
+        storeId,
+        values
+    ) {
+
+        if (!this.isSuperAdmin()) {
+
+            throw new Error(
+                'Apenas SUPERADMIN pode alterar SaaS.'
+            );
+        }
+
+        const payload = {
+
+            valor_mensalidade:
+                values.valor_mensalidade ??
+                values.valorMensalidade,
+
+            data_inicio_teste:
+                values.data_inicio_teste ??
+                values.dataInicioTeste,
+
+            data_fim_teste:
+                values.data_fim_teste ??
+                values.dataFimTeste,
+
+            acesso_ativo:
+                values.acesso_ativo ??
+                values.acessoAtivo,
+
+            motivo_bloqueio:
+                values.motivo_bloqueio ??
+                values.motivoBloqueio ??
+                null
+        };
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('stores')
+            .update(payload)
+            .eq(
+                'id',
+                storeId
+            )
+            .select()
+            .single();
+
+        return mapStore(
+            unwrap(
+                { data, error },
+                'Atualização SaaS'
+            )
+        );
+    }
+
+    async toggleStoreAccess(
+        storeId,
+        active,
+        reason = null
+    ) {
+
+        return this.updateStoreSaas(
+            storeId,
+            {
+                acessoAtivo:
+                    !!active,
+
+                motivoBloqueio:
+                    active
+                        ? null
+                        : reason
+            }
+        );
+    }
+
+    async renewStoreSubscription(
+        storeId,
+        endDate
+    ) {
+
+        return this.updateStoreSaas(
+            storeId,
+            {
+                dataFimTeste:
+                    endDate,
+
+                acessoAtivo:
+                    true,
+
+                motivoBloqueio:
+                    null
+            }
+        );
+    }
+
+    async setStoreExpirationDate(
+        storeId,
+        endDate
+    ) {
+
+        return this.updateStoreSaas(
+            storeId,
+            {
+                dataFimTeste:
+                    endDate
+            }
+        );
+    }
+
+    /*
+     * SEGURANÇA:
+     *
+     * Não existe master code no frontend.
+     * Não colocar códigos secretos neste arquivo.
+     */
+    async unlockWithMasterCode() {
+
+        throw new Error(
+            'Desbloqueio por master code no frontend foi removido por segurança. ' +
+            'O desbloqueio administrativo deve ser feito no Supabase.'
+        );
+    }
+
+    /* ========================================================
+       DASHBOARD
+       ======================================================== */
+
+    async getDashboardStats(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const [
+            products,
+            sales,
+            customers,
+            sessions
+        ] = await Promise.all([
+            this.getProducts(storeId),
+            this.getSales(storeId),
+            this.getCustomers(storeId),
+            this.getCashSessions(storeId)
+        ]);
+
+        const today =
+            new Date()
+                .toISOString()
+                .slice(0, 10);
+
+        const todaySales =
+            sales.filter(
+                sale =>
+                    String(
+                        sale.created_at || ''
+                    ).slice(0, 10) === today
+            );
+
+        const salesTotal =
+            todaySales
+                .filter(
+                    sale =>
+                        String(
+                            sale.status || ''
+                        ).toUpperCase() !==
+                        'REVERSED'
+                )
+                .reduce(
+                    (sum, sale) =>
+                        sum +
+                        Number(
+                            sale.totalNet || 0
+                        ),
+                    0
+                );
+
+        const lowStock =
+            products.filter(
+                product =>
+                    Number(
+                        product.currentStock || 0
+                    ) <=
+                    Number(
+                        product.minStockAlert || 0
+                    )
+            );
+
+        const debt =
+            customers.reduce(
+                (sum, customer) =>
+                    sum +
+                    Number(
+                        customer.currentDebt || 0
+                    ),
+                0
+            );
+
+        return {
+
+            totalProducts:
+                products.length,
+
+            totalCustomers:
+                customers.length,
+
+            totalSalesToday:
+                todaySales.length,
+
+            salesToday:
+                salesTotal,
+
+            lowStockCount:
+                lowStock.length,
+
+            lowStockProducts:
+                lowStock,
+
+            totalCustomerDebt:
+                debt,
+
+            activeCashSessions:
+                sessions.filter(
+                    session =>
+                        !session.isClosed
+                ).length
+        };
+    }
+
+    /* ========================================================
+       AUDIT
+       ======================================================== */
+
+    async getAuditLogs(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('audit_logs')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de auditoria'
+        ) || [];
+    }
+
+    async addAuditLog(
+        log
+    ) {
+
+        const storeId =
+            log.store_id ??
+            log.storeId ??
+            null;
+
+        if (storeId) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+        }
+
+        const {
+            data,
+            error
+        } = await getClient()
+            .from('audit_logs')
+            .insert({
+                id:
+                    log.id ??
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId,
+
+                user_id:
+                    log.user_id ??
+                    log.userId ??
+                    this._authUser?.id ??
+                    null,
+
+                action:
+                    log.action,
+
+                entity_type:
+                    log.entity_type ??
+                    log.entityType ??
+                    null,
+
+                entity_id:
+                    log.entity_id ??
+                    log.entityId ??
+                    null,
+
+                old_data:
+                    log.old_data ??
+                    log.oldData ??
+                    null,
+
+                new_data:
+                    log.new_data ??
+                    log.newData ??
+                    null,
+
+                metadata:
+                    log.metadata ??
+                    null,
+
+                created_at:
+                    log.created_at ??
+                    nowIso()
+            })
+            .select()
+            .single();
+
+        return unwrap(
+            { data, error },
+            'Auditoria'
+        );
+    }
+
+    /* ========================================================
+       INVENTORIES
+       ======================================================== */
+
+    async getInventories(
+        storeId = this.getCurrentStoreId()
+    ) {
+
+        const { supabase } =
+            await this._ensureContext();
+
+        let query =
+            supabase
+                .from('inventories')
+                .select('*')
+                .order(
+                    'created_at',
+                    {
+                        ascending: false
+                    }
+                );
+
+        if (
+            storeId &&
+            storeId !== ALL_STORES
+        ) {
+
+            await this._assertStoreAccess(
+                storeId
+            );
+
+            query =
+                query.eq(
+                    'store_id',
+                    storeId
+                );
+        }
+
+        const {
+            data,
+            error
+        } = await query;
+
+        return unwrap(
+            { data, error },
+            'Leitura de inventários'
+        ) || [];
+    }
+
+    async saveInventoryAudit(
+        inventory
+    ) {
+
+        const storeId =
+            inventory.store_id ??
+            inventory.storeId ??
+            this.getCurrentStoreId();
+
+        if (
+            !storeId ||
+            storeId === ALL_STORES
+        ) {
+            throw new Error(
+                'Inventário requer uma loja específica.'
+            );
+        }
+
+        await this._assertStoreAccess(
+            storeId
+        );
+
+        return this._upsert(
+            'inventories',
+            {
+                ...inventory,
+
+                id:
+                    inventory.id ??
+                    crypto.randomUUID(),
+
+                store_id:
+                    storeId,
+
+                operator_id:
+                    inventory.operator_id ??
+                    inventory.operatorId ??
+                    this._authUser?.id ??
+                    null
+            }
+        );
+    }
+}
+
+/* ============================================================
+   EXPORTS
+   ============================================================ */
+
+const db =
+    new GefDatabase();
+
+export {
+    GefDatabase,
+    db,
+    ROLE,
+    ALL_STORES
+};
+
+export default db;
