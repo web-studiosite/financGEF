@@ -3,6 +3,10 @@
  * JavaScript Puro (Vanilla JS)
  * Layout com catálogo no topo e carrinho na parte inferior em cards
  * Suporte a digitação direta do nome do cliente
+ *
+ * DADOS:
+ * - Produtos, clientes e vendas via Supabase através de database.js
+ * - Nenhum dado comercial utiliza localStorage/cache
  */
 
 import { db } from '../../js/core/database.js';
@@ -11,10 +15,23 @@ import { openScaleModal } from '../../js/components/scale-modal.js';
 import { openReceiptModal } from '../../js/components/receipt-modal.js';
 import { showToast } from '../../js/components/toast.js';
 
-export function initPosModule(container, options = {}) {
-  const storeId = db.getCurrentStoreId();
-  let products = db.getProducts(storeId);
-  let customers = db.getCustomers(storeId);
+export async function initPosModule(container, options = {}) {
+  const storeId = await db.getCurrentStoreId();
+
+  if (!storeId || storeId === 'ALL') {
+    container.innerHTML = `
+      <div class="card" style="padding: 30px; text-align: center; color: #f59e0b;">
+        <strong>PDV indisponível</strong><br>
+        <span style="font-size: 12px; color: #94a3b8;">
+          O PDV deve estar associado a uma loja específica.
+        </span>
+      </div>
+    `;
+    return;
+  }
+
+  let products = await db.getProducts(storeId);
+  let customers = await db.getCustomers(storeId);
   const currentUser = auth.getCurrentUser();
 
   let cart = [];
@@ -27,6 +44,7 @@ export function initPosModule(container, options = {}) {
   let discountAmount = 0;
   let needsDelivery = false;
   let notes = '';
+  let processingSale = false;
 
   const categories = [
     'TODOS',
@@ -54,15 +72,26 @@ export function initPosModule(container, options = {}) {
     const change = tendered >= total ? tendered - total : 0;
 
     const filteredProducts = products.filter(p => {
-      const matchCat = selectedCategory === 'TODOS' || (p.category || '').toLowerCase().includes(selectedCategory.toLowerCase().split(' ')[0]);
-      const matchSearch = !searchTerm || 
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.code || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchCat =
+        selectedCategory === 'TODOS' ||
+        (p.category || '')
+          .toLowerCase()
+          .includes(selectedCategory.toLowerCase().split(' ')[0]);
+
+      const matchSearch =
+        !searchTerm ||
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.code || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (p.barcode || '').toLowerCase().includes(searchTerm.toLowerCase());
+
       return matchCat && matchSearch;
     });
 
-    const registeredCustomer = customers.find(c => c.id === selectedCustomerId || c.name.toLowerCase() === customerName.toLowerCase());
+    const registeredCustomer = customers.find(
+      c =>
+        c.id === selectedCustomerId ||
+        c.name.toLowerCase() === customerName.toLowerCase()
+    );
 
     container.innerHTML = `
       <div class="pos-container">
@@ -111,7 +140,10 @@ export function initPosModule(container, options = {}) {
                 Nenhum material localizado no estoque com os filtros aplicados.
               </div>
             ` : filteredProducts.map(p => {
-              const isLowStock = p.currentStockBase <= p.minStockAlert && p.currentStockBase > 0;
+              const isLowStock =
+                p.currentStockBase <= p.minStockAlert &&
+                p.currentStockBase > 0;
+
               const isOut = p.currentStockBase <= 0;
               const isWeight = p.baseUnit === 'kg' || p.allowWeight;
               const conversions = p.conversions || [];
@@ -161,7 +193,7 @@ export function initPosModule(container, options = {}) {
           </div>
         </div>
 
-        <!-- 2. BOTTOM CARD: Carrinho de Vendas & Fechamento ("O carrinho de vendas é que pode ficar em baixo") -->
+        <!-- 2. BOTTOM CARD: Carrinho de Vendas & Fechamento -->
         <div class="card" style="background: #0f172a; border-color: #334155; padding: 16px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #1f2937; padding-bottom: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -178,7 +210,7 @@ export function initPosModule(container, options = {}) {
           <div class="pos-cart-bottom-grid">
             <!-- Left Sub-column: Customer typing & Items table -->
             <div style="display: flex; flex-direction: column; gap: 12px;">
-              <!-- Customer Input Box: Typeable name -->
+              <!-- Customer Input Box -->
               <div class="card" style="padding: 10px 12px; background: #1e293b; border-color: #334155;">
                 <label style="font-size: 11px; font-weight: 700; color: #cbd5e1; display: flex; justify-content: space-between; margin-bottom: 4px;">
                   <span>Nome do Cliente:</span>
@@ -201,6 +233,7 @@ export function initPosModule(container, options = {}) {
                   </datalist>
                   <button class="btn btn-secondary" id="btn-clear-customer-name" title="Limpar nome" style="padding: 4px 8px; font-size: 11px;">✕</button>
                 </div>
+
                 ${registeredCustomer ? `
                   <div style="margin-top: 6px; font-size: 11px; display: flex; justify-content: space-between; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 8px; border-radius: 4px;">
                     <span style="color: #6ee7b7;">Cliente Cadastrado: <strong>${registeredCustomer.name}</strong></span>
@@ -260,7 +293,7 @@ export function initPosModule(container, options = {}) {
               </div>
             </div>
 
-            <!-- Right Sub-column: Payment method, calculations and checkout -->
+            <!-- Right Sub-column -->
             <div style="display: flex; flex-direction: column; gap: 10px;">
               <!-- Payment Method Selection -->
               <div class="card" style="padding: 10px; background: #1e293b; border-color: #334155;">
@@ -287,7 +320,7 @@ export function initPosModule(container, options = {}) {
                 </div>
               </div>
 
-              <!-- Cash Tendered Box if Dinheiro -->
+              <!-- Cash Tendered Box -->
               ${selectedPaymentMethod === 'DINHEIRO' ? `
                 <div class="card" style="padding: 8px 10px; background: #020617; border-color: #334155;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
@@ -319,7 +352,7 @@ export function initPosModule(container, options = {}) {
                 </div>
               </div>
 
-              <!-- Delivery schedule toggle Card -->
+              <!-- Delivery -->
               <div class="card" style="padding: 8px 12px; background: #020617; border-color: #334155;">
                 <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #cbd5e1; cursor: pointer; margin: 0;">
                   <input type="checkbox" id="chk-delivery" ${needsDelivery ? 'checked' : ''}>
@@ -332,10 +365,10 @@ export function initPosModule(container, options = {}) {
                 class="btn btn-primary" 
                 id="btn-finalize-sale" 
                 style="width: 100%; padding: 12px; font-size: 14px; font-weight: 900; background: #ea580c; border-color: #ea580c;"
-                ${cart.length === 0 ? 'disabled' : ''}
+                ${cart.length === 0 || processingSale ? 'disabled' : ''}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-                <span>Concluir Venda (${total.toFixed(2)} MT)</span>
+                <span>${processingSale ? 'Processando venda...' : `Concluir Venda (${total.toFixed(2)} MT)`}</span>
               </button>
             </div>
           </div>
@@ -344,12 +377,13 @@ export function initPosModule(container, options = {}) {
     `;
 
     // --- BIND EVENTS ---
-    // Search input
+
     const searchInput = container.querySelector('#input-pos-search');
     if (searchInput) {
-      searchInput.oninput = (e) => {
+      searchInput.oninput = e => {
         searchTerm = e.target.value;
         render();
+
         const updatedInp = container.querySelector('#input-pos-search');
         if (updatedInp) {
           updatedInp.focus();
@@ -373,17 +407,25 @@ export function initPosModule(container, options = {}) {
       };
     });
 
-    // Customer name typing
     const custNameInput = container.querySelector('#input-cart-customer-name');
     if (custNameInput) {
-      custNameInput.oninput = (e) => {
+      custNameInput.oninput = e => {
         customerName = e.target.value;
-        const match = customers.find(c => c.name.toLowerCase() === customerName.trim().toLowerCase());
+
+        const match = customers.find(
+          c => c.name.toLowerCase() === customerName.trim().toLowerCase()
+        );
+
         selectedCustomerId = match ? match.id : '';
       };
-      custNameInput.onchange = (e) => {
+
+      custNameInput.onchange = e => {
         customerName = e.target.value;
-        const match = customers.find(c => c.name.toLowerCase() === customerName.trim().toLowerCase());
+
+        const match = customers.find(
+          c => c.name.toLowerCase() === customerName.trim().toLowerCase()
+        );
+
         selectedCustomerId = match ? match.id : '';
         render();
       };
@@ -398,27 +440,40 @@ export function initPosModule(container, options = {}) {
       };
     }
 
-    // Add product to cart
+    // Add product
     container.querySelectorAll('.btn-add-prod').forEach(btn => {
       btn.onclick = () => {
         const prodId = btn.getAttribute('data-prod-id');
         const prod = products.find(p => p.id === prodId);
+
         if (!prod) return;
 
         const card = btn.closest('.pos-product-card');
         const pkgSelect = card?.querySelector('.pos-package-select');
+
         let multiplier = 1;
         let packagingName = prod.baseUnit;
         let unitPrice = prod.salePriceBase;
 
         if (pkgSelect && pkgSelect.value !== 'BASE') {
           const opt = pkgSelect.selectedOptions[0];
-          multiplier = parseFloat(opt.getAttribute('data-mult')) || 1;
-          unitPrice = parseFloat(opt.getAttribute('data-price')) || prod.salePriceBase;
+
+          multiplier =
+            parseFloat(opt.getAttribute('data-mult')) || 1;
+
+          unitPrice =
+            parseFloat(opt.getAttribute('data-price')) ||
+            prod.salePriceBase;
+
           packagingName = opt.textContent.split('(')[0].trim();
         }
 
-        const existingIdx = cart.findIndex(it => it.productId === prod.id && it.packagingName === packagingName);
+        const existingIdx = cart.findIndex(
+          it =>
+            it.productId === prod.id &&
+            it.packagingName === packagingName
+        );
+
         if (existingIdx >= 0) {
           cart[existingIdx].quantity += 1;
         } else {
@@ -435,31 +490,34 @@ export function initPosModule(container, options = {}) {
             quantity: 1
           });
         }
+
         render();
       };
     });
 
-    // Scale trigger
+    // Scale
     container.querySelectorAll('.btn-scale-trigger').forEach(btn => {
       btn.onclick = () => {
         const prodId = btn.getAttribute('data-prod-id');
         const prod = products.find(p => p.id === prodId);
-        if (prod) {
-          openScaleModal(prod, (measuredWeight) => {
-            cart.push({
-              productId: prod.id,
-              productName: prod.name,
-              productCode: prod.code,
-              packagingName: 'kg (Pesado)',
-              selectedUnit: 'kg',
-              multiplierToBase: 1,
-              multiplier: 1,
-              unitPrice: prod.salePriceBase,
-              quantity: measuredWeight
-            });
-            render();
+
+        if (!prod) return;
+
+        openScaleModal(prod, measuredWeight => {
+          cart.push({
+            productId: prod.id,
+            productName: prod.name,
+            productCode: prod.code,
+            packagingName: 'kg (Pesado)',
+            selectedUnit: 'kg',
+            multiplierToBase: 1,
+            multiplier: 1,
+            unitPrice: prod.salePriceBase,
+            quantity: measuredWeight
           });
-        }
+
+          render();
+        });
       };
     });
 
@@ -472,41 +530,58 @@ export function initPosModule(container, options = {}) {
       };
     }
 
-    // Cart item adjustments
+    // Quantity +
     container.querySelectorAll('.btn-qty-inc').forEach(btn => {
       btn.onclick = () => {
-        const idx = parseInt(btn.getAttribute('data-idx'));
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+
+        if (!cart[idx]) return;
+
         cart[idx].quantity += 1;
         render();
       };
     });
 
+    // Quantity -
     container.querySelectorAll('.btn-qty-dec').forEach(btn => {
       btn.onclick = () => {
-        const idx = parseInt(btn.getAttribute('data-idx'));
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+
+        if (!cart[idx]) return;
+
         if (cart[idx].quantity > 1) {
           cart[idx].quantity -= 1;
         } else {
           cart.splice(idx, 1);
         }
+
         render();
       };
     });
 
+    // Quantity manual
     container.querySelectorAll('.input-item-qty').forEach(inp => {
-      inp.onchange = (e) => {
-        const idx = parseInt(inp.getAttribute('data-idx'));
+      inp.onchange = e => {
+        const idx = parseInt(inp.getAttribute('data-idx'), 10);
+
+        if (!cart[idx]) return;
+
         const val = parseFloat(e.target.value) || 1;
         cart[idx].quantity = Math.max(0.001, val);
+
         render();
       };
     });
 
+    // Remove item
     container.querySelectorAll('.btn-remove-item').forEach(btn => {
       btn.onclick = () => {
-        const idx = parseInt(btn.getAttribute('data-idx'));
-        cart.splice(idx, 1);
-        render();
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+
+        if (cart[idx]) {
+          cart.splice(idx, 1);
+          render();
+        }
       };
     });
 
@@ -518,115 +593,234 @@ export function initPosModule(container, options = {}) {
       };
     });
 
-    // Cash tendered input
+    // Cash
     const cashInp = container.querySelector('#input-cash-tendered');
+
     if (cashInp) {
-      cashInp.oninput = (e) => {
+      cashInp.oninput = e => {
         cashTendered = e.target.value;
+
         const curTendered = parseFloat(cashTendered) || 0;
         const curTotal = calculateTotal();
-        const changeSpan = container.querySelector('strong[style*="font-family: var(--font-mono)"]');
+
+        const changeSpan = container.querySelector(
+          'strong[style*="font-family: var(--font-mono)"]'
+        );
+
         if (changeSpan) {
-          const curChange = curTendered >= curTotal ? curTendered - curTotal : 0;
-          changeSpan.textContent = curChange.toFixed(2) + ' MT';
-          changeSpan.style.color = curTendered >= curTotal ? '#34d399' : '#f59e0b';
+          const curChange =
+            curTendered >= curTotal
+              ? curTendered - curTotal
+              : 0;
+
+          changeSpan.textContent =
+            curChange.toFixed(2) + ' MT';
+
+          changeSpan.style.color =
+            curTendered >= curTotal
+              ? '#34d399'
+              : '#f59e0b';
         }
       };
     }
 
     // Discount
     const discInp = container.querySelector('#input-discount');
+
     if (discInp) {
-      discInp.onchange = (e) => {
+      discInp.onchange = e => {
         discountAmount = parseFloat(e.target.value) || 0;
+
+        if (discountAmount > calculateSubtotal()) {
+          discountAmount = calculateSubtotal();
+        }
+
         render();
       };
     }
 
-    // Delivery checkbox
+    // Delivery
     const delivChk = container.querySelector('#chk-delivery');
+
     if (delivChk) {
-      delivChk.onchange = (e) => {
+      delivChk.onchange = e => {
         needsDelivery = e.target.checked;
       };
     }
 
-    // Finalize Sale
+    // Finalize sale
     const finalizeBtn = container.querySelector('#btn-finalize-sale');
-    if (finalizeBtn) {
-      finalizeBtn.onclick = () => {
-        if (cart.length === 0) return;
 
-        // Verify Credit Limit if Fiado
+    if (finalizeBtn) {
+      finalizeBtn.onclick = async () => {
+        if (cart.length === 0 || processingSale) return;
+
+        const total = calculateTotal();
+        const subtotal = calculateSubtotal();
+        const tendered = parseFloat(cashTendered) || 0;
+
+        // Fiado
         if (selectedPaymentMethod === 'CREDITO_FIADO') {
           if (!registeredCustomer) {
-            showToast('Para vender a crédito (fiado), digite o nome de um cliente cadastrado com limite ativo.', 'error');
+            showToast(
+              'Para vender a crédito (fiado), digite o nome de um cliente cadastrado com limite ativo.',
+              'error'
+            );
             return;
           }
-          const availableCredit = (registeredCustomer.creditLimit || 0) - (registeredCustomer.currentDebt || 0);
+
+          const availableCredit =
+            (registeredCustomer.creditLimit || 0) -
+            (registeredCustomer.currentDebt || 0);
+
           if (total > availableCredit) {
-            showToast(`Limite fiado excedido! Disponível: ${availableCredit.toFixed(2)} MT, Pedido: ${total.toFixed(2)} MT`, 'error');
+            showToast(
+              `Limite fiado excedido! Disponível: ${availableCredit.toFixed(2)} MT, Pedido: ${total.toFixed(2)} MT`,
+              'error'
+            );
             return;
           }
         }
 
-        const activeShift = db.getActiveCashSession(storeId);
-        const effectiveCustName = customerName.trim() || 'Consumidor Final (Balcão)';
+        // Dinheiro precisa cobrir o total.
+        if (
+          selectedPaymentMethod === 'DINHEIRO' &&
+          tendered < total
+        ) {
+          showToast(
+            `Valor entregue insuficiente. Faltam ${(total - tendered).toFixed(2)} MT.`,
+            'error'
+          );
+          return;
+        }
+
+        processingSale = true;
+        render();
 
         try {
-          const result = db.processAtomicSale(
+          // A sessão de caixa real vem do Supabase.
+          const activeShift =
+            await db.getActiveCashSession(storeId);
+
+          const effectiveCustName =
+            customerName.trim() ||
+            'Consumidor Final (Balcão)';
+
+          /*
+           * A venda é processada pelo RPC transacional do Supabase.
+           * Estoque + venda + itens devem ser tratados pelo banco
+           * como uma única operação.
+           */
+          const result = await db.processAtomicSale(
             storeId,
-            activeShift?.id,
+            activeShift?.id || null,
             effectiveCustName,
-            registeredCustomer ? (registeredCustomer.document || registeredCustomer.taxId) : '',
+            registeredCustomer
+              ? (
+                  registeredCustomer.document ||
+                  registeredCustomer.taxId ||
+                  ''
+                )
+              : '',
             selectedPaymentMethod,
             discountAmount,
             cart,
             {
               customerId: registeredCustomer?.id || null,
               customerPhone: registeredCustomer?.phone || '',
-              cashierName: currentUser?.fullName || 'Operador Balcão',
+              cashierName:
+                currentUser?.fullName ||
+                'Operador Balcão',
+
               paymentDetails: {
-                cashTendered: parseFloat(cashTendered) || total,
-                changeGiven: tendered >= total ? tendered - total : 0
+                cashTendered:
+                  selectedPaymentMethod === 'DINHEIRO'
+                    ? tendered
+                    : total,
+
+                changeGiven:
+                  selectedPaymentMethod === 'DINHEIRO' &&
+                  tendered >= total
+                    ? tendered - total
+                    : 0
               },
-              needsDelivery
+
+              needsDelivery,
+              notes,
+
+              subtotal,
+              total
             }
           );
 
-          if (result && result.sale) {
-            showToast(`Venda ${result.sale.saleNumber} realizada com sucesso!`, 'success');
+          if (!result || !result.sale) {
+            throw new Error(
+              'A venda não foi confirmada pelo servidor.'
+            );
+          }
 
-            if (needsDelivery) {
-              db.saveDelivery({
-                id: 'deliv-' + Date.now(),
-                saleId: result.sale.id,
-                saleNumber: result.sale.saleNumber,
-                customerName: result.sale.customerName,
-                address: registeredCustomer?.address || 'Canteiro de Obra',
-                contactPhone: registeredCustomer?.phone || '',
-                status: 'PENDENTE',
-                scheduledDate: new Date().toISOString().split('T')[0],
-                items: result.sale.items
-              });
-            }
+          showToast(
+            `Venda ${result.sale.saleNumber} realizada com sucesso!`,
+            'success'
+          );
 
-            // Open Thermal Receipt modal
-            openReceiptModal(result.sale, () => {
-              // Reset cart
-              cart = [];
-              cashTendered = '';
-              discountAmount = 0;
-              needsDelivery = false;
-              customerName = 'Consumidor Final (Balcão)';
-              selectedCustomerId = '';
-              products = db.getProducts(storeId);
-              customers = db.getCustomers(storeId);
-              render();
+          // Entrega é persistida no Supabase.
+          if (needsDelivery) {
+            await db.saveDelivery({
+              id: 'deliv-' + Date.now(),
+              saleId: result.sale.id,
+              saleNumber: result.sale.saleNumber,
+              customerName: result.sale.customerName,
+              address:
+                registeredCustomer?.address ||
+                'Canteiro de Obra',
+              contactPhone:
+                registeredCustomer?.phone || '',
+              status: 'PENDENTE',
+              scheduledDate:
+                new Date().toISOString().split('T')[0],
+              items: result.sale.items
             });
           }
+
+          // Recibo
+          openReceiptModal(result.sale, async () => {
+            cart = [];
+            cashTendered = '';
+            discountAmount = 0;
+            needsDelivery = false;
+            notes = '';
+            customerName =
+              'Consumidor Final (Balcão)';
+            selectedCustomerId = '';
+
+            // Recarregar dados reais do Supabase.
+            products = await db.getProducts(storeId);
+            customers = await db.getCustomers(storeId);
+
+            processingSale = false;
+            render();
+          });
+
+          /*
+           * O recibo fica aberto. Não limpamos o carrinho aqui:
+           * o reset ocorre no callback do recibo, mantendo o
+           * comportamento original do PDV.
+           */
         } catch (err) {
-          showToast(err.message || 'Erro ao processar venda.', 'error');
+          processingSale = false;
+          render();
+
+          console.error(
+            '[GEF PDV] Erro ao processar venda:',
+            err
+          );
+
+          showToast(
+            err?.message ||
+              'Erro ao processar venda.',
+            'error'
+          );
         }
       };
     }
